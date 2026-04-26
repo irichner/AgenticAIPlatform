@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useThreads } from "@/components/shared/ThreadsProvider";
+import { useBranding } from "@/components/shared/BrandingProvider";
 import { api } from "@/lib/api";
 
 type CreateAction = "dept" | "agent" | null;
@@ -42,6 +43,7 @@ export function Sidebar() {
   const { mutate } = useSWRConfig();
   const { threads, activeThreadId, startNewChat, loadThread, deleteThread } = useThreads();
   const [collapsed, setCollapsed] = useState(false);
+  const { appName, appIcon } = useBranding();
 
   // ── Swarm creation ────────────────────────────────────────────────────────
   const [creatingDept, setCreatingDept]   = useState(false);
@@ -88,11 +90,14 @@ export function Sidebar() {
           title="New chat"
           className="flex items-center gap-2.5 flex-1 min-w-0 text-left hover:opacity-80 transition-opacity"
         >
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet to-cyan flex items-center justify-center shrink-0">
-            <span className="text-xs font-black text-white">L</span>
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet to-cyan flex items-center justify-center shrink-0 overflow-hidden">
+            {appIcon
+              ? <img src={appIcon} alt="" className="w-full h-full object-cover" />
+              : <span className="text-xs font-black text-white">L</span>
+            }
           </div>
           {!collapsed && (
-            <span className="font-semibold text-text-1 text-sm tracking-tight truncate">Ask Lanara</span>
+            <span className="font-semibold text-text-1 text-sm tracking-tight truncate">{appName}</span>
           )}
         </button>
         <button

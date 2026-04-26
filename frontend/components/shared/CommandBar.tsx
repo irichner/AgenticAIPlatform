@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import { Sparkles, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { useBranding } from "@/components/shared/BrandingProvider";
 
 interface CommandBarProps {
   placeholder?: string;
@@ -12,12 +13,14 @@ interface CommandBarProps {
 }
 
 export function CommandBar({
-  placeholder = "Ask Lanara to build an agent…",
+  placeholder,
   onSubmit,
   loading = false,
   className,
 }: CommandBarProps) {
   const [value, setValue] = useState("");
+  const { appName } = useBranding();
+  const resolvedPlaceholder = placeholder ?? `Ask ${appName} to build an agent…`;
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -39,7 +42,7 @@ export function CommandBar({
       <input
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder={placeholder}
+        placeholder={resolvedPlaceholder}
         disabled={loading}
         className="flex-1 bg-transparent text-sm text-text-1 placeholder:text-text-3 outline-none min-w-0"
       />

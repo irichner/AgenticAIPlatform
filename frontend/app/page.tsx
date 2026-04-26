@@ -11,11 +11,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, ArrowRight, Bot, User } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { useThreads, type ChatMessage } from "@/components/shared/ThreadsProvider";
+import { useBranding } from "@/components/shared/BrandingProvider";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 
 export default function ChatPage() {
   const { messages, addMessage } = useThreads();
+  const { appName } = useBranding();
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState("");
@@ -93,7 +95,7 @@ export default function ChatPage() {
                     What would you like to build?
                   </h1>
                   <p className="text-text-3 text-sm mt-2 max-w-xs">
-                    Ask Lanara to build agents, analyze sales performance, or optimize your commission plans.
+                    Ask {appName} to build agents, analyze sales performance, or optimize your commission plans.
                   </p>
                 </div>
               </div>
@@ -174,6 +176,7 @@ const ChatInput = forwardRef<
     className?: string;
   }
 >(function ChatInput({ value, onChange, onKeyDown, onSubmit, loading, className }, ref) {
+  const { appName } = useBranding();
   return (
     <div
       className={cn(
@@ -191,7 +194,7 @@ const ChatInput = forwardRef<
           e.target.style.height = Math.min(e.target.scrollHeight, 160) + "px";
         }}
         onKeyDown={onKeyDown}
-        placeholder="Ask Lanara anything… (Enter to send, Shift+Enter for newline)"
+        placeholder={`Ask ${appName} anything… (Enter to send, Shift+Enter for newline)`}
         disabled={loading}
         rows={1}
         className="flex-1 bg-transparent text-sm text-text-1 placeholder:text-text-3 outline-none resize-none overflow-y-auto leading-relaxed"
