@@ -95,15 +95,26 @@ function WorkflowPageInner({ agents, businessUnits }: PageInnerProps) {
         );
       }
       if (saved.edges) setEdges((saved.edges as Edge[]).map((e) => ({ ...e, type: "floating" })));
+      if (saved.selectedId) setSelectedId(saved.selectedId);
     } catch { /* ignore corrupt storage */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Auto-save on every change (debounced 500 ms) so navigating away never loses work
+  useEffect(() => {
+    const id = setTimeout(() => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ name: workflowName, nodes, edges, selectedId }));
+      } catch { /* ignore */ }
+    }, 500);
+    return () => clearTimeout(id);
+  }, [workflowName, nodes, edges, selectedId]);
+
   const handleSave = useCallback(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ name: workflowName, nodes, edges }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ name: workflowName, nodes, edges, selectedId }));
     } catch { /* ignore */ }
-  }, [workflowName, nodes, edges]);
+  }, [workflowName, nodes, edges, selectedId]);
 
   const handleNewWorkflow = useCallback(() => {
     setWorkflowName("Untitled Workflow");
@@ -111,7 +122,7 @@ function WorkflowPageInner({ agents, businessUnits }: PageInnerProps) {
     setEdges([]);
     setSelectedId(null);
     try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
-  }, [setNodes, setEdges]);
+  }, [setNodes, setEdges, setSelectedId]);
 
   // ── Drag-and-drop from AgentLibraryPanel ─────────────────────────────────────
   const onDragOver = useCallback((event: React.DragEvent) => {

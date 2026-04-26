@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, Suspense, useEffect, useCallback } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState, useRef, Suspense, useEffect, useCallback } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import useSWR from "swr";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { CanvasView } from "@/components/canvas/CanvasView";
@@ -174,6 +174,8 @@ function AgentCreatePanel({ businessUnits, groups, onClose, onCreated }: AgentCr
   );
 }
 
+const AGENT_FORM_KEY = (id: string) => `lanara-agent-form-${id}`;
+
 // ── Agent properties panel ────────────────────────────────────────────────────
 
 interface AgentPropertiesPanelProps {
@@ -194,27 +196,57 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, onClose, onUpda
   const [prompt, setPrompt]           = useState<string>("");
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState<string | null>(null);
+  // True once localStorage has supplied the prompt so the versions effect doesn't overwrite it
+  const promptFromStorage = useRef(false);
 
   const { data: versions } = useSWR(
     ["agent-versions", agent.id],
     ([, id]) => api.agents.versions(id),
   );
 
+  // Restore / reset all non-prompt fields when the active agent changes.
+  // Check localStorage first so unsaved edits survive navigation.
   useEffect(() => {
-    if (versions && versions.length > 0) {
-      setPrompt(versions[0].prompt ?? "");
-    }
-  }, [versions]);
-
-  // Reset form when agent changes
-  useEffect(() => {
+    promptFromStorage.current = false;
+    setError(null);
+    try {
+      const raw = localStorage.getItem(AGENT_FORM_KEY(agent.id));
+      if (raw) {
+        const s = JSON.parse(raw);
+        setName(s.name         ?? agent.name);
+        setDescription(s.description ?? (agent.description ?? ""));
+        setBuId(s.buId         ?? agent.business_unit_id);
+        setGroupId(s.groupId   ?? (agent.group_id ?? ""));
+        setStatus(s.status     ?? agent.status);
+        if (s.prompt !== undefined) {
+          setPrompt(s.prompt);
+          promptFromStorage.current = true;
+        }
+        return;
+      }
+    } catch { /* ignore corrupt storage */ }
     setName(agent.name);
     setDescription(agent.description ?? "");
     setBuId(agent.business_unit_id);
     setGroupId(agent.group_id ?? "");
     setStatus(agent.status);
-    setError(null);
-  }, [agent.id]);
+  }, [agent.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load prompt from the latest version — skip if already restored from localStorage.
+  useEffect(() => {
+    if (promptFromStorage.current) return;
+    if (versions && versions.length > 0) setPrompt(versions[0].prompt ?? "");
+  }, [versions]);
+
+  // Auto-save every form change so it survives navigation.
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        AGENT_FORM_KEY(agent.id),
+        JSON.stringify({ name, description, buId, groupId, status, prompt }),
+      );
+    } catch { /* ignore */ }
+  }, [agent.id, name, description, buId, groupId, status, prompt]);
 
   const buGroups = allGroups.filter((g) => g.business_unit_id === buId);
   const swarmName = businessUnits.find((b) => b.id === buId)?.name ?? "";
@@ -239,6 +271,7 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, onClose, onUpda
         status,
         prompt: prompt.trim() || undefined,
       });
+      try { localStorage.removeItem(AGENT_FORM_KEY(agent.id)); } catch { /* ignore */ }
       onUpdated();
     } catch (err) {
       setError(String(err));
@@ -396,8 +429,12 @@ type RightPanel =
   | { type: "run"; agentId: string }
   | null;
 
+const CANVAS_PANEL_KEY = "lanara-canvas-panel";
+const CANVAS_UNIT_KEY  = "lanara-canvas-unit";
+
 function CanvasPageInner() {
   const searchParams = useSearchParams();
+  const router       = useRouter();
   const unitFilter   = searchParams.get("unit");
 
   const [rightPanel, setRightPanel] = useState<RightPanel>(
@@ -407,6 +444,43 @@ function CanvasPageInner() {
   useEffect(() => {
     if (searchParams.get("new") === "true") setRightPanel({ type: "create" });
   }, [searchParams]);
+
+  // On mount: restore unit filter from localStorage if URL has none
+  useEffect(() => {
+    if (searchParams.get("unit")) return;
+    try {
+      const saved = localStorage.getItem(CANVAS_UNIT_KEY);
+      if (saved) router.replace(`/canvas?unit=${encodeURIComponent(saved)}`);
+    } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Save unit filter whenever it changes
+  useEffect(() => {
+    try {
+      if (unitFilter) localStorage.setItem(CANVAS_UNIT_KEY, unitFilter);
+    } catch { /* ignore */ }
+  }, [unitFilter]);
+
+  // On mount: restore right panel from localStorage (skip ephemeral run state)
+  useEffect(() => {
+    if (searchParams.get("new") === "true") return;
+    try {
+      const raw = localStorage.getItem(CANVAS_PANEL_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as RightPanel;
+      if (saved?.type !== "run") setRightPanel(saved);
+    } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Save right panel whenever it changes (skip ephemeral run state)
+  useEffect(() => {
+    try {
+      const toSave = rightPanel?.type === "run" ? null : rightPanel;
+      localStorage.setItem(CANVAS_PANEL_KEY, JSON.stringify(toSave));
+    } catch { /* ignore */ }
+  }, [rightPanel]);
 
   const { data: units = [], mutate: mutateUnits } = useSWR(
     "business-units-canvas",
