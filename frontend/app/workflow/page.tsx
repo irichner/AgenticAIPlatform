@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import useSWR from "swr";
 import {
   ReactFlow,
@@ -81,6 +82,8 @@ interface PageInnerProps {
 
 function WorkflowPageInner({ agents, businessUnits }: PageInnerProps) {
   const { screenToFlowPosition } = useReactFlow();
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([INITIAL_TRIGGER]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -166,6 +169,15 @@ function WorkflowPageInner({ agents, businessUnits }: PageInnerProps) {
     setSelectedId(null);
     try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
   }, [setNodes, setEdges, setSelectedId]);
+
+  // Clear canvas when navigated here with ?new=true (e.g. sidebar + button)
+  const newParamHandled = useRef(false);
+  useEffect(() => {
+    if (newParamHandled.current || searchParams.get("new") !== "true") return;
+    newParamHandled.current = true;
+    handleNewWorkflow();
+    router.replace("/workflow");
+  }, [searchParams, handleNewWorkflow, router]);
 
   // ── Drag-and-drop from AgentLibraryPanel ─────────────────────────────────────
   const onDragOver = useCallback((event: React.DragEvent) => {
@@ -421,7 +433,9 @@ export default function WorkflowPage() {
     <div className="flex h-screen bg-surface-0 overflow-hidden">
       <Sidebar />
       <ReactFlowProvider>
-        <WorkflowPageInner agents={agents} businessUnits={businessUnits} />
+        <Suspense fallback={null}>
+          <WorkflowPageInner agents={agents} businessUnits={businessUnits} />
+        </Suspense>
       </ReactFlowProvider>
     </div>
   );

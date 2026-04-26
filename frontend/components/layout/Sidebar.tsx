@@ -25,13 +25,13 @@ import { useThreads } from "@/components/shared/ThreadsProvider";
 import { useBranding } from "@/components/shared/BrandingProvider";
 import { api } from "@/lib/api";
 
-type CreateAction = "dept" | "agent" | null;
+type CreateAction = "dept" | "agent" | "workflow" | null;
 
 const navItems: { href: string; label: string; icon: React.ElementType; createAction: CreateAction }[] = [
-  { href: "/dashboard",   label: "Dashboard",    icon: House,           createAction: null   },
-  { href: "/swarms",      label: "Swarms",       icon: LayoutGrid,      createAction: "dept" },
-  { href: "/canvas",      label: "Agents",       icon: Workflow,        createAction: "agent"},
-  { href: "/workflow",    label: "Workflows",    icon: GitBranch,       createAction: null   },
+  { href: "/dashboard",   label: "Dashboard",    icon: House,           createAction: null       },
+  { href: "/swarms",      label: "Swarms",       icon: LayoutGrid,      createAction: "dept"     },
+  { href: "/canvas",      label: "Agents",       icon: Workflow,        createAction: "agent"    },
+  { href: "/workflow",    label: "Workflows",    icon: GitBranch,       createAction: "workflow" },
   { href: "/chat",        label: "Chat",         icon: MessagesSquare,  createAction: null   },
   { href: "/approvals",   label: "Approvals",    icon: ShieldCheck,     createAction: null   },
   { href: "/admin",       label: "Admin",        icon: Settings2,       createAction: null   },
@@ -131,8 +131,9 @@ export function Sidebar() {
                   onClick={() => {
                     if (createAction === "dept") setCreatingDept((v) => !v);
                     if (createAction === "agent") router.push("/canvas?new=true");
+                    if (createAction === "workflow") router.push("/workflow?new=true");
                   }}
-                  title={createAction === "dept" ? "New swarm" : "New agent"}
+                  title={createAction === "dept" ? "New swarm" : createAction === "agent" ? "New agent" : "New workflow"}
                   className="p-1.5 rounded-lg text-text-3 hover:text-text-1 hover:bg-surface-2 transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />

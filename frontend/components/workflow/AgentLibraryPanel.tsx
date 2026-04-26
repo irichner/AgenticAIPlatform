@@ -211,7 +211,8 @@ export function AgentLibraryPanel({
                 return (
                   <div
                     key={wf.id}
-                    className="rounded-xl p-2.5 bg-surface-2 border border-border/60 hover:border-violet/30 transition-colors"
+                    onClick={() => onLoadWorkflow?.(wf)}
+                    className="group rounded-xl p-2.5 bg-surface-2 border border-border/60 hover:border-violet/30 hover:bg-violet/5 cursor-pointer transition-colors"
                   >
                     <div className="flex items-start gap-2">
                       <div className="w-6 h-6 rounded-lg bg-violet/15 flex items-center justify-center shrink-0 mt-0.5">
@@ -229,17 +230,9 @@ export function AgentLibraryPanel({
                           {stepCount} {stepCount === 1 ? "step" : "steps"}
                         </p>
                       </div>
-                    </div>
-                    <div className="flex gap-1.5 mt-2">
                       <button
-                        onClick={() => onLoadWorkflow?.(wf)}
-                        className="flex-1 py-1 rounded-lg text-[10px] font-medium text-violet bg-violet/10 hover:bg-violet/20 transition-colors"
-                      >
-                        Load
-                      </button>
-                      <button
-                        onClick={() => onDeleteWorkflow?.(wf.id)}
-                        className="p-1 rounded-lg text-text-3 hover:text-rose-400 hover:bg-rose-400/10 transition-colors"
+                        onClick={(e) => { e.stopPropagation(); onDeleteWorkflow?.(wf.id); }}
+                        className="shrink-0 p-1 rounded-lg text-text-3 hover:text-rose-400 hover:bg-rose-400/10 opacity-0 group-hover:opacity-100 transition-all"
                         title="Delete"
                       >
                         <Trash2 className="w-3 h-3" />
@@ -253,7 +246,7 @@ export function AgentLibraryPanel({
 
           <div className="px-3 py-2 border-t border-border shrink-0">
             <p className="text-[10px] text-text-3 leading-tight">
-              Click Load to restore a saved workflow onto the canvas
+              Click a workflow to restore it onto the canvas
             </p>
           </div>
         </>
