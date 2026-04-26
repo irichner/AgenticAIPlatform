@@ -1,0 +1,11 @@
+from __future__ import annotations
+from typing import Annotated, TypedDict
+from langchain_core.messages import BaseMessage
+from langgraph.graph.message import add_messages
+
+
+class AgentState(TypedDict):
+    messages: Annotated[list[BaseMessage], add_messages]
+    run_id: str
+    rag_context: str
+    usage: dict

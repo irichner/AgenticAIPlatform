@@ -1,0 +1,179 @@
+@import "tailwindcss";
+
+/* ── Design tokens ──────────────────────────────────────────── */
+@theme inline {
+  --color-surface-0: #06060b;
+  --color-surface-1: #0f0f17;
+  --color-surface-2: #16161f;
+
+  --color-violet: #8b5cf6;
+  --color-violet-dim: #6d28d9;
+  --color-cyan: #22d3ee;
+  --color-cyan-dim: #0891b2;
+  --color-amber: #fbbf24;
+  --color-rose: #fb7185;
+  --color-emerald: #34d399;
+
+  --color-border: rgb(255 255 255 / 0.08);
+  --color-border-strong: rgb(255 255 255 / 0.14);
+  --color-text-1: #f4f4f5;
+  --color-text-2: #a1a1aa;
+  --color-text-3: #52525b;
+
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), "Fira Code", monospace;
+}
+
+/* ── Base ───────────────────────────────────────────────────── */
+:root {
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--color-surface-0);
+  color: var(--color-text-1);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Glassmorphism ───────────────────────────────────────────��� */
+@layer utilities {
+  .glass {
+    background: rgb(255 255 255 / 0.04);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgb(255 255 255 / 0.08);
+    box-shadow:
+      0 8px 32px rgb(0 0 0 / 0.45),
+      inset 0 1px 0 rgb(255 255 255 / 0.07);
+  }
+
+  .glass-hover {
+    transition: background 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+  }
+
+  .glass-hover:hover {
+    background: rgb(255 255 255 / 0.06);
+    border-color: rgb(255 255 255 / 0.13);
+    box-shadow:
+      0 12px 40px rgb(0 0 0 / 0.55),
+      inset 0 1px 0 rgb(255 255 255 / 0.1);
+  }
+
+  /* Agent type glows */
+  .glow-violet {
+    box-shadow:
+      0 0 24px rgb(139 92 246 / 0.3),
+      0 8px 32px rgb(0 0 0 / 0.45),
+      inset 0 1px 0 rgb(255 255 255 / 0.07);
+  }
+
+  .glow-cyan {
+    box-shadow:
+      0 0 24px rgb(34 211 238 / 0.3),
+      0 8px 32px rgb(0 0 0 / 0.45),
+      inset 0 1px 0 rgb(255 255 255 / 0.07);
+  }
+
+  .glow-amber {
+    box-shadow:
+      0 0 24px rgb(251 191 36 / 0.3),
+      0 8px 32px rgb(0 0 0 / 0.45),
+      inset 0 1px 0 rgb(255 255 255 / 0.07);
+  }
+
+  /* Unit zone containers — solid, enterprise-weight borders */
+  .zone-violet  { background: rgb(139 92 246 / 0.04);  border: 1px solid rgb(139 92 246 / 0.25); }
+  .zone-cyan    { background: rgb(34 211 238 / 0.04);  border: 1px solid rgb(34 211 238 / 0.25); }
+  .zone-amber   { background: rgb(251 191 36 / 0.04);  border: 1px solid rgb(251 191 36 / 0.25); }
+  .zone-rose    { background: rgb(251 113 133 / 0.04); border: 1px solid rgb(251 113 133 / 0.25); }
+  .zone-emerald { background: rgb(52 211 153 / 0.04);  border: 1px solid rgb(52 211 153 / 0.25); }
+}
+
+/* ── React Flow overrides ───────────────────────────────────── */
+.react-flow__background {
+  background: var(--color-surface-0) !important;
+}
+
+.react-flow__controls {
+  background: rgb(255 255 255 / 0.04) !important;
+  border: 1px solid rgb(255 255 255 / 0.08) !important;
+  box-shadow: none !important;
+  border-radius: 10px !important;
+  overflow: hidden;
+}
+
+.react-flow__controls-button {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid rgb(255 255 255 / 0.06) !important;
+  color: var(--color-text-2) !important;
+  fill: var(--color-text-2) !important;
+}
+
+.react-flow__controls-button:hover {
+  background: rgb(255 255 255 / 0.06) !important;
+}
+
+.react-flow__minimap {
+  background: rgb(255 255 255 / 0.03) !important;
+  border: 1px solid rgb(255 255 255 / 0.08) !important;
+  border-radius: 10px !important;
+  overflow: hidden;
+}
+
+.react-flow__edge-path {
+  stroke: rgb(255 255 255 / 0.25) !important;
+  stroke-width: 1.5 !important;
+}
+
+/* Workflow canvas overrides — violet animated edges */
+.workflow-canvas .react-flow__edge-path {
+  stroke: rgb(139 92 246 / 0.6) !important;
+  stroke-width: 2 !important;
+}
+
+/* Re-define the animated dash so it matches our stroke colour */
+.workflow-canvas .react-flow__edge.animated .react-flow__edge-path {
+  stroke-dasharray: 5;
+  animation: wf-dash 0.8s linear infinite;
+}
+
+@keyframes wf-dash {
+  to { stroke-dashoffset: -10; }
+}
+
+/* Arrow markers inherit the correct fill colour */
+.workflow-canvas .react-flow__arrowhead-source path,
+.workflow-canvas .react-flow__arrowhead-target path {
+  fill: rgb(139 92 246 / 0.8) !important;
+  stroke: none !important;
+}
+
+/* Floating handles — hidden by default, shown on node hover */
+.workflow-canvas .wf-handle {
+  width: 10px !important;
+  height: 10px !important;
+  background: rgb(139 92 246 / 0.7) !important;
+  border: 2px solid rgb(139 92 246 / 0.4) !important;
+  border-radius: 50% !important;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.workflow-canvas .react-flow__node:hover .wf-handle,
+.workflow-canvas .react-flow__node.selected .wf-handle {
+  opacity: 1;
+}

@@ -1,0 +1,183 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: lanara-postgres
+    environment:
+      POSTGRES_DB: lanara
+      POSTGRES_USER: lanara
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lanara_supersecret}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lanara"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: lanara-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mcp-spm:
+    build:
+      context: ./mcp-servers/spm
+      dockerfile: Dockerfile
+    container_name: lanara-mcp-spm
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8001
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/mcp')\" 2>/dev/null || exit 0"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  mcp-filesystem:
+    build:
+      context: ./mcp-servers/filesystem
+      dockerfile: Dockerfile
+    container_name: lanara-mcp-filesystem
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8023
+      - ALLOWED_DIR=/files
+    ports:
+      - "8023:8023"
+    volumes:
+      # Default: drop files into ./files/ in this repo.
+      # To mount your Documents folder instead, set FILESYSTEM_PATH in .env:
+      #   FILESYSTEM_PATH=C:\Users\yourname\Documents
+      - ${FILESYSTEM_PATH:-./files}:/files:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8023/mcp')\" 2>/dev/null || exit 0"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  mcp-postgres:
+    build:
+      context: ./mcp-servers/postgres
+      dockerfile: Dockerfile
+    container_name: lanara-mcp-postgres
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8012
+      - DATABASE_URL=postgresql://lanara:${POSTGRES_PASSWORD:-lanara_supersecret}@postgres:5432/lanara
+    ports:
+      - "8012:8012"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8012/mcp')\" 2>/dev/null || exit 0"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  mcp-gdrive:
+    build:
+      context: ./mcp-servers/gdrive
+      dockerfile: Dockerfile
+    container_name: lanara-mcp-gdrive
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8024
+      - BACKEND_URL=http://backend:8000
+    ports:
+      - "8024:8024"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8024/mcp')\" 2>/dev/null || exit 0"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: lanara-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Uncomment the following to enable NVIDIA GPU support:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: lanara-backend
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://lanara:${POSTGRES_PASSWORD:-lanara_supersecret}@postgres:5432/lanara
+      - REDIS_URL=redis://redis:6379/0
+      - MCP_SPM_URL=http://mcp-spm:8001/mcp
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - ENV=development
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-http://localhost:3000/api/integrations/google-drive/callback}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mcp-spm:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: lanara-frontend
+    environment:
+      - BACKEND_URL=backend:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_data:

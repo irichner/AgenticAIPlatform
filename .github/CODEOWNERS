@@ -1,0 +1,8 @@
+# All changes require review from project owner
+* @irichner
+
+# MCP servers touch external credentials/OAuth — flag for extra scrutiny
+/mcp-servers/ @irichner
+
+# Infrastructure changes affect all environments
+/infra/ @irichner
