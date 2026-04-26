@@ -22,7 +22,7 @@ import {
 import "@xyflow/react/dist/style.css";
 
 import { Sidebar } from "@/components/layout/Sidebar";
-import { AgentLibraryPanel } from "@/components/workflow/AgentLibraryPanel";
+import { AgentLibraryPanel, type SavedWorkflow } from "@/components/workflow/AgentLibraryPanel";
 import { NodePropertiesPanel } from "@/components/workflow/NodePropertiesPanel";
 import { TriggerNode, type TriggerNodeData, type TriggerType } from "@/components/workflow/TriggerNode";
 import { WorkflowStepNode, type WorkflowStepData, type InputType } from "@/components/workflow/WorkflowStepNode";
@@ -61,7 +61,16 @@ const INITIAL_TRIGGER: Node = {
   deletable: false,
 };
 
-const STORAGE_KEY = "lanara-workflow-v1";
+const STORAGE_KEY        = "lanara-workflow-v1";
+const WORKFLOWS_LIST_KEY = "lanara-saved-workflows";
+
+function loadWorkflowsList(): SavedWorkflow[] {
+  try {
+    const raw = localStorage.getItem(WORKFLOWS_LIST_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  return [];
+}
 
 // ── Inner page (needs ReactFlowProvider ancestor for useReactFlow) ────────────
 
@@ -78,6 +87,7 @@ function WorkflowPageInner({ agents, businessUnits }: PageInnerProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [workflowName, setWorkflowName] = useState("Untitled Workflow");
   const [editingName, setEditingName] = useState(false);
+  const [savedWorkflows, setSavedWorkflows] = useState<SavedWorkflow[]>(() => loadWorkflowsList());
 
   // ── Persist / restore ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -114,7 +124,40 @@ function WorkflowPageInner({ agents, businessUnits }: PageInnerProps) {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ name: workflowName, nodes, edges, selectedId }));
     } catch { /* ignore */ }
+    // Save a named snapshot to the workflows list (upsert by name)
+    const snapshot: SavedWorkflow = {
+      id: Date.now().toString(),
+      name: workflowName,
+      nodes,
+      edges,
+      savedAt: new Date().toISOString(),
+    };
+    setSavedWorkflows((prev) => {
+      const next = [snapshot, ...prev.filter((w) => w.name !== workflowName)];
+      try { localStorage.setItem(WORKFLOWS_LIST_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
   }, [workflowName, nodes, edges, selectedId]);
+
+  const handleLoadWorkflow = useCallback((wf: SavedWorkflow) => {
+    setWorkflowName(wf.name);
+    setNodes(
+      (wf.nodes as Node[]).map((n) => ({
+        ...n,
+        deletable: n.id === "trigger-1" ? false : n.deletable,
+      })),
+    );
+    setEdges((wf.edges as Edge[]).map((e) => ({ ...e, type: "floating" })));
+    setSelectedId(null);
+  }, [setNodes, setEdges]);
+
+  const handleDeleteWorkflow = useCallback((id: string) => {
+    setSavedWorkflows((prev) => {
+      const next = prev.filter((w) => w.id !== id);
+      try { localStorage.setItem(WORKFLOWS_LIST_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
 
   const handleNewWorkflow = useCallback(() => {
     setWorkflowName("Untitled Workflow");
@@ -243,7 +286,13 @@ function WorkflowPageInner({ agents, businessUnits }: PageInnerProps) {
   return (
     <div className="flex flex-1 min-w-0 overflow-hidden">
       {/* Agent library */}
-      <AgentLibraryPanel agents={agents} businessUnits={businessUnits} />
+      <AgentLibraryPanel
+        agents={agents}
+        businessUnits={businessUnits}
+        savedWorkflows={savedWorkflows}
+        onLoadWorkflow={handleLoadWorkflow}
+        onDeleteWorkflow={handleDeleteWorkflow}
+      />
 
       {/* Canvas + toolbar */}
       <div className="flex flex-col flex-1 min-w-0">
