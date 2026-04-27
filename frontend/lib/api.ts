@@ -53,6 +53,19 @@ export interface ApiProvider {
   updated_at: string;
 }
 
+export interface McpTool {
+  id: string;
+  server_id: string;
+  name: string;
+  description: string | null;
+  input_schema: Record<string, unknown>;
+  http_method: string;
+  path: string;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface McpServer {
   id: string;
   name: string;
@@ -60,6 +73,13 @@ export interface McpServer {
   transport: string;
   description: string | null;
   enabled: boolean;
+  runtime_mode: "external" | "dynamic" | "code_generated";
+  slug: string | null;
+  base_url: string | null;
+  auth_config: Record<string, unknown> | null;
+  source_repo: string | null;
+  last_generated_at: string | null;
+  tools: McpTool[];
   created_at: string;
   updated_at: string;
 }
@@ -512,9 +532,31 @@ export const api = {
     list: () => req<McpServer[]>("GET", "/mcp-servers"),
     create: (payload: { name: string; url: string; transport?: string; description?: string; enabled?: boolean }) =>
       req<McpServer>("POST", "/mcp-servers", payload),
-    update: (id: string, payload: { name?: string; url?: string; transport?: string; description?: string; enabled?: boolean }) =>
+    update: (id: string, payload: { name?: string; url?: string; transport?: string; description?: string; enabled?: boolean; auth_config?: Record<string, string> | null }) =>
       req<McpServer>("PATCH", `/mcp-servers/${id}`, payload),
     delete: (id: string) => req<void>("DELETE", `/mcp-servers/${id}`),
+    importOpenApi: (payload: {
+      name: string;
+      base_url: string;
+      spec_url?: string;
+      spec_json?: Record<string, unknown>;
+      description?: string;
+      auth_config?: Record<string, unknown>;
+      slug?: string;
+    }) => req<McpServer>("POST", "/mcp-servers/import-openapi", payload),
+    updateTool: (serverId: string, toolId: string, payload: { description?: string; enabled?: boolean }) =>
+      req<McpTool>("PATCH", `/mcp-servers/${serverId}/tools/${toolId}`, payload),
+    exportCode: async (serverId: string, slug: string): Promise<void> => {
+      const res = await fetch(`/api/mcp-servers/${serverId}/export`, { method: "POST", headers: { "X-Role": "editor" } });
+      if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `mcp-${slug}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    },
   },
 
   businessUnits: {

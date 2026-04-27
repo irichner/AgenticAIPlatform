@@ -1,0 +1,7 @@
+services:
+  mcp-{{ slug }}:
+    build: .
+    ports:
+      - "${PORT:-8100}:8100"
+    env_file: .env
+    restart: unless-stopped

@@ -1,0 +1,25 @@
+"""Shared httpx client with retry logic and auth injection."""
+from __future__ import annotations
+import os
+import httpx
+
+
+def make_client() -> httpx.AsyncClient:
+    base_url = os.getenv("BASE_URL", "{{ base_url }}")
+    headers: dict[str, str] = {}
+{% if auth_type == "bearer" %}
+    token = os.getenv("BEARER_TOKEN", "")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+{% elif auth_type == "api_key" %}
+    api_key = os.getenv("API_KEY", "")
+    header_name = os.getenv("API_KEY_HEADER", "{{ auth_header | default('X-API-Key') }}")
+    if api_key:
+        headers[header_name] = api_key
+{% endif %}
+    return httpx.AsyncClient(
+        base_url=base_url,
+        headers=headers,
+        timeout=30.0,
+        follow_redirects=True,
+    )

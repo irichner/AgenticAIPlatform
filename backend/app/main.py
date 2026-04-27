@@ -82,6 +82,7 @@ from app.routers.runs import router as runs_router
 from app.routers.documents import router as documents_router
 from app.routers.approvals import router as approvals_router
 from app.routers.mcp_servers import router as mcp_servers_router
+from app.routers.mcp_dynamic import router as mcp_dynamic_router
 from app.routers.ai_models import router as ai_models_router
 from app.routers.api_providers import router as api_providers_router
 from app.routers.chat import router as chat_router
@@ -114,6 +115,7 @@ app.include_router(runs_router, prefix="/api")
 app.include_router(documents_router, prefix="/api")
 app.include_router(approvals_router, prefix="/api")
 app.include_router(mcp_servers_router, prefix="/api")
+app.include_router(mcp_dynamic_router, prefix="/api")
 app.include_router(ai_models_router, prefix="/api")
 app.include_router(api_providers_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")

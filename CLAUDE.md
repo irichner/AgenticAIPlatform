@@ -1,6 +1,6 @@
 # Lanara — AgenticAIPlatform
 
-Revenue Operations OS: SPM + CRM, agent-native, enterprise-first. Targeting $50k–$500k+ ARR enterprise sales teams.
+Agentic AI OS: agent-native, enterprise-first. Targeting $50k–$500k+ ARR enterprise sales teams.
 
 ## Stack
 

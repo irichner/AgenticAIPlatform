@@ -1,0 +1,13 @@
+"""{{ tool.name }} — user-owned override. This file is never regenerated."""
+from __future__ import annotations
+import httpx
+from src._generated.tools.{{ tool.module }} import {{ tool.class_name }}Base
+
+
+class {{ tool.class_name }}({{ tool.class_name }}Base):
+    """Override execute() to add custom logic, data enrichment, or multi-step calls."""
+    # Example:
+    # async def execute(self, **kwargs) -> str:
+    #     result = await super().execute(**kwargs)
+    #     # enrich result here
+    #     return result

@@ -1,0 +1,29 @@
+"""Smoke tests for generated tools — uses httpx mock transport."""
+from __future__ import annotations
+import json
+import pytest
+import httpx
+
+
+class _MockTransport(httpx.AsyncBaseTransport):
+    def __init__(self, status: int = 200, body: dict | None = None) -> None:
+        self._status = status
+        self._body = body or {"ok": True}
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        return httpx.Response(self._status, json=self._body)
+
+
+def _mock_client(body: dict | None = None) -> httpx.AsyncClient:
+    return httpx.AsyncClient(base_url="http://mock", transport=_MockTransport(body=body))
+
+{% for tool in tools %}
+
+@pytest.mark.asyncio
+async def test_{{ tool.var_name }}_smoke() -> None:
+    from src.tools.{{ tool.module }} import {{ tool.class_name }}
+    client = _mock_client()
+    tool = {{ tool.class_name }}(client)
+    result = await tool.execute({% for p in tool.params %}{% if p.required %}{{ p.name }}={{ p.example }}{% if not loop.last %}, {% endif %}{% endif %}{% endfor %})
+    assert result  # non-empty response
+{% endfor %}

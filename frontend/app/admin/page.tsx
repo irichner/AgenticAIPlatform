@@ -8,10 +8,11 @@ import {
   FileText, AlertCircle, CheckCircle2, Loader2,
   Plus, Pencil, Check, X, Eye, EyeOff, Cpu, KeyRound, Download,
   Globe, ExternalLink, Sparkles, HardDrive, Database,
+  ChevronDown, ChevronRight, Zap, Code2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { api, type BusinessUnit, type Document, type SearchResult, type McpServer, type AiModel, type ApiProvider, type CatalogItem } from "@/lib/api";
+import { api, type BusinessUnit, type Document, type SearchResult, type McpServer, type McpTool, type AiModel, type ApiProvider, type CatalogItem } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useBranding } from "@/components/shared/BrandingProvider";
 import { CatalogSourcesTab } from "@/components/admin/CatalogSourcesTab";
@@ -1557,6 +1558,11 @@ function McpServersTab() {
   const isInstalled = (item: McpCatalogItem) =>
     servers.some((s) => s.name.toLowerCase() === item.name.toLowerCase());
 
+  // ── OpenAPI import ────────────────────────────────────────────
+  const [showImport,    setShowImport]    = useState(false);
+  const [expandedTools, setExpandedTools] = useState<string | null>(null);
+  const [exportingId,   setExportingId]   = useState<string | null>(null);
+
   // ── Create ────────────────────────────────────────────────────
   const [creating, setCreating]     = useState(false);
   const [newName,  setNewName]      = useState("");
@@ -1676,6 +1682,19 @@ function McpServersTab() {
     }
   };
 
+  // ── Export to code ────────────────────────────────────────────
+  const handleExport = async (s: McpServer) => {
+    setExportingId(s.id);
+    try {
+      await api.mcpServers.exportCode(s.id, s.slug ?? s.id);
+      mutate(); // refresh last_generated_at
+    } catch (e) {
+      console.error("Export failed:", e);
+    } finally {
+      setExportingId(null);
+    }
+  };
+
   return (
     <div className="max-w-4xl space-y-6">
       {/* Header */}
@@ -1723,16 +1742,27 @@ function McpServersTab() {
               <Database className="w-3 h-3" /> Live Registry
             </button>
           </div>
-          {/* Add button — installed view only */}
-          {mcpView === "installed" && !creating && (
-            <button
-              onClick={() => setCreating(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet/20 hover:bg-violet/35 text-violet text-sm font-medium transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              Add server
-            </button>
-          )}
+          {/* Import OpenAPI — always visible; Add server — installed only */}
+          <div className="flex items-center gap-2">
+            {!showImport && (
+              <button
+                onClick={() => { setShowImport(true); setMcpView("installed"); setCreating(false); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-400/15 hover:bg-amber-400/25 text-amber-400 text-sm font-medium transition-colors"
+              >
+                <Zap className="w-3.5 h-3.5" />
+                Import OpenAPI
+              </button>
+            )}
+            {mcpView === "installed" && !creating && !showImport && (
+              <button
+                onClick={() => setCreating(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet/20 hover:bg-violet/35 text-violet text-sm font-medium transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Add server
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1848,6 +1878,16 @@ function McpServersTab() {
             )}
           </AnimatePresence>
 
+          {/* Import from OpenAPI form */}
+          <AnimatePresence>
+            {showImport && (
+              <ImportOpenApiForm
+                onSuccess={() => { setShowImport(false); mutate(); }}
+                onClose={() => setShowImport(false)}
+              />
+            )}
+          </AnimatePresence>
+
           {/* Google Drive connection panel */}
           {servers.some((s) => s.name.toLowerCase() === "google drive") && (
             <GoogleDrivePanel />
@@ -1940,49 +1980,98 @@ function McpServersTab() {
                       </div>
                     </div>
                   ) : (
-                    <div className="flex items-start gap-4">
-                      <button
-                        onClick={() => handleToggle(s)}
-                        title={s.enabled ? "Disable" : "Enable"}
-                        className={cn(
-                          "relative mt-0.5 w-9 h-5 rounded-full transition-colors shrink-0",
-                          s.enabled ? "bg-emerald/60" : "bg-white/10",
-                        )}
-                      >
-                        <span className={cn(
-                          "absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200",
-                          s.enabled ? "translate-x-4" : "translate-x-0",
-                        )} />
-                      </button>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-text-1">{s.name}</p>
-                          <span className="text-xs px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-text-3 font-mono">
-                            {s.transport}
-                          </span>
+                    <div className="space-y-0">
+                      <div className="flex items-start gap-4">
+                        <button
+                          onClick={() => handleToggle(s)}
+                          title={s.enabled ? "Disable" : "Enable"}
+                          className={cn(
+                            "relative mt-0.5 w-9 h-5 rounded-full transition-colors shrink-0",
+                            s.enabled ? "bg-emerald/60" : "bg-white/10",
+                          )}
+                        >
+                          <span className={cn(
+                            "absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200",
+                            s.enabled ? "translate-x-4" : "translate-x-0",
+                          )} />
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-medium text-text-1">{s.name}</p>
+                            {s.runtime_mode === "dynamic" ? (
+                              <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-400/10 border border-amber-400/20 text-amber-400 font-medium">
+                                <Zap className="w-2.5 h-2.5" /> Dynamic
+                              </span>
+                            ) : (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-text-3 font-mono">
+                                {s.transport}
+                              </span>
+                            )}
+                            {s.runtime_mode === "dynamic" && s.tools.length > 0 && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-text-3 font-mono">
+                                {s.tools.filter(t => t.enabled).length}/{s.tools.length} tools
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-text-3 font-mono mt-0.5 truncate">{s.url}</p>
+                          {s.description && <p className="text-xs text-text-3 mt-0.5">{s.description}</p>}
                         </div>
-                        <p className="text-xs text-text-3 font-mono mt-0.5 truncate">{s.url}</p>
-                        {s.description && <p className="text-xs text-text-3 mt-0.5">{s.description}</p>}
+                        <div className="flex items-center gap-1 shrink-0">
+                          {s.runtime_mode === "dynamic" && s.tools.length > 0 && (
+                            <button
+                              onClick={() => setExpandedTools(expandedTools === s.id ? null : s.id)}
+                              title="Toggle tools"
+                              className="p-1.5 rounded-lg text-text-3 hover:text-amber-400 hover:bg-amber-400/10 transition-colors"
+                            >
+                              {expandedTools === s.id
+                                ? <ChevronDown className="w-3.5 h-3.5" />
+                                : <ChevronRight className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
+                          {s.runtime_mode === "dynamic" && (
+                            <button
+                              onClick={() => handleExport(s)}
+                              disabled={exportingId === s.id}
+                              title="Eject to code (download zip)"
+                              className="p-1.5 rounded-lg text-text-3 hover:text-violet hover:bg-violet/10 disabled:opacity-40 transition-colors"
+                            >
+                              {exportingId === s.id
+                                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                : <Code2 className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
+                          <button
+                            onClick={() => startEdit(s)}
+                            title="Edit"
+                            className="p-1.5 rounded-lg text-text-3 hover:text-text-2 hover:bg-surface-2 transition-colors"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(s.id)}
+                            disabled={deletingId === s.id}
+                            title="Delete"
+                            className="p-1.5 rounded-lg text-text-3 hover:text-rose-400 disabled:opacity-40 transition-colors"
+                          >
+                            {deletingId === s.id
+                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              : <Trash2 className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          onClick={() => startEdit(s)}
-                          title="Edit"
-                          className="p-1.5 rounded-lg text-text-3 hover:text-text-2 hover:bg-surface-2 transition-colors"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(s.id)}
-                          disabled={deletingId === s.id}
-                          title="Delete"
-                          className="p-1.5 rounded-lg text-text-3 hover:text-rose-400 disabled:opacity-40 transition-colors"
-                        >
-                          {deletingId === s.id
-                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            : <Trash2 className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
+                      {/* Expandable tools list for dynamic servers */}
+                      <AnimatePresence>
+                        {expandedTools === s.id && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="overflow-hidden"
+                          >
+                            <ToolList server={s} onMutate={mutate} />
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </div>
                   )}
                 </motion.div>
@@ -1991,6 +2080,300 @@ function McpServersTab() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Import from OpenAPI form ──────────────────────────────────────────────────
+
+function ImportOpenApiForm({ onSuccess, onClose }: { onSuccess: () => void; onClose: () => void }) {
+  const [specMode, setSpecMode] = useState<"url" | "paste">("url");
+  const [specUrl,  setSpecUrl]  = useState("");
+  const [specJson, setSpecJson] = useState("");
+  const [name,     setName]     = useState("");
+  const [baseUrl,  setBaseUrl]  = useState("");
+  const [authType, setAuthType] = useState<"none" | "bearer" | "api_key">("none");
+  const [authValue,  setAuthValue]  = useState("");
+  const [authHeader, setAuthHeader] = useState("X-API-Key");
+  const [importing,  setImporting]  = useState(false);
+  const [error,      setError]      = useState("");
+
+  const handleImport = async () => {
+    if (!name.trim() || !baseUrl.trim()) { setError("Name and Base URL are required"); return; }
+    if (specMode === "url" && !specUrl.trim()) { setError("Spec URL is required"); return; }
+    if (specMode === "paste" && !specJson.trim()) { setError("Paste an OpenAPI JSON spec"); return; }
+
+    setImporting(true);
+    setError("");
+    try {
+      let parsed_json: Record<string, unknown> | undefined;
+      if (specMode === "paste") {
+        try { parsed_json = JSON.parse(specJson); }
+        catch { setError("Invalid JSON — check your pasted spec"); setImporting(false); return; }
+      }
+      const auth_config =
+        authType === "bearer" ? { type: "bearer", token: authValue } :
+        authType === "api_key" ? { type: "api_key", header: authHeader, value: authValue } :
+        undefined;
+
+      await api.mcpServers.importOpenApi({
+        name: name.trim(),
+        base_url: baseUrl.trim(),
+        spec_url: specMode === "url" ? specUrl.trim() : undefined,
+        spec_json: parsed_json,
+        auth_config,
+      });
+      onSuccess();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Import failed");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+      className="rounded-2xl border border-amber-400/20 bg-amber-400/5 p-5 space-y-4"
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Zap className="w-4 h-4 text-amber-400" />
+          <p className="text-sm font-semibold text-text-1">Import from OpenAPI</p>
+        </div>
+        <button onClick={onClose} className="p-1 rounded text-text-3 hover:text-text-2 transition-colors">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Spec source toggle */}
+      <div className="flex items-center gap-1 bg-surface-2 rounded-lg p-0.5 border border-border w-fit">
+        {(["url", "paste"] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => setSpecMode(m)}
+            className={cn(
+              "px-3 py-1 rounded-md text-xs font-medium transition-colors",
+              specMode === m ? "bg-amber-400/20 text-amber-400" : "text-text-3 hover:text-text-2",
+            )}
+          >
+            {m === "url" ? "From URL" : "Paste JSON"}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1">
+          <label className="text-xs text-text-3">Server name</label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="My API"
+            className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text-1 placeholder:text-text-3 outline-none focus:border-amber-400"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs text-text-3">API base URL</label>
+          <input
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="https://api.example.com"
+            className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text-1 placeholder:text-text-3 outline-none focus:border-amber-400 font-mono"
+          />
+        </div>
+      </div>
+
+      {specMode === "url" ? (
+        <div className="space-y-1">
+          <label className="text-xs text-text-3">OpenAPI spec URL</label>
+          <input
+            value={specUrl}
+            onChange={(e) => setSpecUrl(e.target.value)}
+            placeholder="https://api.example.com/openapi.json"
+            className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text-1 placeholder:text-text-3 outline-none focus:border-amber-400 font-mono"
+          />
+        </div>
+      ) : (
+        <div className="space-y-1">
+          <label className="text-xs text-text-3">OpenAPI JSON</label>
+          <textarea
+            value={specJson}
+            onChange={(e) => setSpecJson(e.target.value)}
+            placeholder={'{\n  "openapi": "3.0.0",\n  ...\n}'}
+            rows={6}
+            className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2 text-xs text-text-1 placeholder:text-text-3 outline-none focus:border-amber-400 font-mono resize-none"
+          />
+        </div>
+      )}
+
+      {/* Auth */}
+      <div className="space-y-2">
+        <label className="text-xs text-text-3">Authentication</label>
+        <div className="flex items-center gap-2">
+          {(["none", "bearer", "api_key"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setAuthType(t)}
+              className={cn(
+                "px-2.5 py-1 rounded-md text-xs font-medium border transition-colors",
+                authType === t
+                  ? "bg-amber-400/20 border-amber-400/30 text-amber-400"
+                  : "border-border text-text-3 hover:text-text-2",
+              )}
+            >
+              {t === "none" ? "None" : t === "bearer" ? "Bearer token" : "API key"}
+            </button>
+          ))}
+        </div>
+        {authType !== "none" && (
+          <div className="grid grid-cols-2 gap-3">
+            {authType === "api_key" && (
+              <div className="space-y-1">
+                <label className="text-xs text-text-3">Header name</label>
+                <input
+                  value={authHeader}
+                  onChange={(e) => setAuthHeader(e.target.value)}
+                  placeholder="X-API-Key"
+                  className="w-full bg-surface-2 border border-border rounded-lg px-3 py-1.5 text-sm text-text-1 placeholder:text-text-3 outline-none focus:border-amber-400 font-mono"
+                />
+              </div>
+            )}
+            <div className={cn("space-y-1", authType === "api_key" ? "" : "col-span-2")}>
+              <label className="text-xs text-text-3">{authType === "bearer" ? "Token" : "Value"}</label>
+              <input
+                value={authValue}
+                onChange={(e) => setAuthValue(e.target.value)}
+                type="password"
+                placeholder={authType === "bearer" ? "sk-..." : "your-api-key"}
+                className="w-full bg-surface-2 border border-border rounded-lg px-3 py-1.5 text-sm text-text-1 placeholder:text-text-3 outline-none focus:border-amber-400 font-mono"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {error && <p className="text-xs text-rose-400">{error}</p>}
+
+      <div className="flex gap-2">
+        <button
+          onClick={handleImport}
+          disabled={importing}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-400/20 hover:bg-amber-400/35 text-amber-400 text-sm font-medium disabled:opacity-40 transition-colors"
+        >
+          {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+          {importing ? "Importing…" : "Import"}
+        </button>
+        <button onClick={onClose} className="px-4 py-2 rounded-lg text-text-3 hover:text-text-2 hover:bg-surface-2 text-sm transition-colors">
+          Cancel
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+// ── Tool list (inline, for dynamic servers) ───────────────────────────────────
+
+function ToolList({ server, onMutate }: { server: McpServer; onMutate: () => void }) {
+  const [editingDesc, setEditingDesc] = useState<string | null>(null);
+  const [descValue,   setDescValue]   = useState("");
+  const [saving,      setSaving]      = useState<string | null>(null);
+
+  const startEditDesc = (t: McpTool) => {
+    setEditingDesc(t.id);
+    setDescValue(t.description ?? "");
+  };
+
+  const saveDesc = async (t: McpTool) => {
+    setSaving(t.id);
+    try {
+      await api.mcpServers.updateTool(server.id, t.id, { description: descValue });
+      onMutate();
+      setEditingDesc(null);
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const toggleTool = async (t: McpTool) => {
+    setSaving(t.id);
+    try {
+      await api.mcpServers.updateTool(server.id, t.id, { enabled: !t.enabled });
+      onMutate();
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  return (
+    <div className="mt-3 pt-3 border-t border-border/50 space-y-1">
+      <p className="text-[10px] font-medium text-text-3 uppercase tracking-widest mb-2">
+        Tools — {server.tools.filter(t => t.enabled).length} active
+      </p>
+      {server.tools.map((t) => (
+        <div key={t.id} className="flex items-start gap-3 px-2 py-1.5 rounded-lg hover:bg-white/3 group">
+          {/* enable toggle */}
+          <button
+            onClick={() => toggleTool(t)}
+            disabled={saving === t.id}
+            className={cn(
+              "relative mt-0.5 w-7 h-4 rounded-full transition-colors shrink-0",
+              t.enabled ? "bg-emerald/60" : "bg-white/10",
+              saving === t.id && "opacity-40",
+            )}
+          >
+            <span className={cn(
+              "absolute left-0.5 top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform duration-200",
+              t.enabled ? "translate-x-3" : "translate-x-0",
+            )} />
+          </button>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className={cn(
+                "text-[10px] px-1 py-0.5 rounded font-mono font-medium",
+                t.http_method === "GET"    ? "bg-emerald/10 text-emerald"  :
+                t.http_method === "POST"   ? "bg-violet/10 text-violet"    :
+                t.http_method === "PUT"    ? "bg-amber-400/10 text-amber-400" :
+                t.http_method === "DELETE" ? "bg-rose-400/10 text-rose-400"  :
+                "bg-white/5 text-text-3",
+              )}>
+                {t.http_method}
+              </span>
+              <code className="text-xs text-text-2 font-mono">{t.name}</code>
+              <code className="text-[10px] text-text-3 font-mono truncate max-w-[160px]">{t.path}</code>
+            </div>
+            {editingDesc === t.id ? (
+              <div className="flex items-center gap-1.5 mt-1">
+                <input
+                  value={descValue}
+                  onChange={(e) => setDescValue(e.target.value)}
+                  autoFocus
+                  className="flex-1 bg-surface-2 border border-border rounded px-2 py-0.5 text-xs text-text-1 outline-none focus:border-amber-400"
+                />
+                <button
+                  onClick={() => saveDesc(t)}
+                  disabled={saving === t.id}
+                  className="p-1 rounded text-amber-400 hover:bg-amber-400/10 disabled:opacity-40"
+                >
+                  {saving === t.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                </button>
+                <button onClick={() => setEditingDesc(null)} className="p-1 rounded text-text-3 hover:text-text-2">
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => startEditDesc(t)}
+                className="text-left text-xs text-text-3 mt-0.5 hover:text-text-2 line-clamp-1 w-full"
+                title="Click to edit description"
+              >
+                {t.description || <span className="italic">Add description…</span>}
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -2686,7 +3069,7 @@ function LiveMcpRegistryView({
                     )}
                   </div>
 
-                  {p.description && (
+                  {(p.description as string | undefined) && (
                     <p className="text-xs text-text-3 leading-relaxed line-clamp-3">
                       {p.description as string}
                     </p>
