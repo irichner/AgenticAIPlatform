@@ -420,7 +420,7 @@ export const api = {
       req<AiModel>("POST", "/ai-models", payload),
     update: (id: string, payload: { name?: string; type?: string; provider?: string; model_id?: string; base_url?: string; api_key?: string; enabled?: boolean; description?: string }) =>
       req<AiModel>("PATCH", `/ai-models/${id}`, payload),
-    delete: (id: string) => req<void>("DELETE", `/ai-models/${id}`),
+    delete: (id: string, uninstall = false) => req<void>("DELETE", `/ai-models/${id}${uninstall ? "?uninstall=true" : ""}`),
     providerModels: (provider: string, baseUrl?: string) =>
       req<{ id: string; name: string }[]>(
         "GET",

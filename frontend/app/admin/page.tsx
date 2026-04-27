@@ -23,20 +23,64 @@ import { SessionsTab } from "@/components/admin/SessionsTab";
 import { SsoTab } from "@/components/admin/SsoTab";
 import { OrgSettingsTab } from "@/components/admin/OrgSettingsTab";
 
-const TABS = [
-  { id: "ai",        label: "AI" },
-  { id: "mcp",       label: "MCP Servers" },
-  { id: "knowledge", label: "Knowledge Sources" },
-  { id: "catalog",   label: "Catalog Sources" },
-  { id: "branding",  label: "Branding" },
-  { id: "settings",  label: "Settings" },
-  { id: "org",       label: "Organization" },
-  { id: "members",   label: "Members" },
-  { id: "roles",     label: "Roles & Permissions" },
-  { id: "sso",       label: "SSO" },
-  { id: "audit",     label: "Audit Log" },
-  { id: "sessions",  label: "Sessions" },
+type GroupId = "intelligence" | "knowledge" | "settings" | "team" | "security";
+
+const GROUPS: { id: GroupId; label: string }[] = [
+  { id: "intelligence", label: "Intelligence" },
+  { id: "knowledge",    label: "Knowledge" },
+  { id: "settings",     label: "Settings" },
+  { id: "team",         label: "Team" },
+  { id: "security",     label: "Security" },
 ];
+
+const SUB_TABS: Record<GroupId, { id: string; label: string }[]> = {
+  intelligence: [
+    { id: "ai",      label: "AI Models" },
+    { id: "mcp",     label: "MCP Servers" },
+    { id: "catalog", label: "Catalog Sync" },
+  ],
+  knowledge: [],
+  settings: [
+    { id: "branding",  label: "Branding" },
+    { id: "platform",  label: "Platform" },
+    { id: "org",       label: "Organization" },
+  ],
+  team: [
+    { id: "members", label: "Members" },
+    { id: "roles",   label: "Roles" },
+  ],
+  security: [
+    { id: "sso",      label: "SSO" },
+    { id: "sessions", label: "Sessions" },
+    { id: "audit",    label: "Audit Log" },
+  ],
+};
+
+const DEFAULT_SUB: Record<GroupId, string> = {
+  intelligence: "ai",
+  knowledge:    "",
+  settings:     "branding",
+  team:         "members",
+  security:     "sso",
+};
+
+const TAB_PARAM_MAP: Record<string, { group: GroupId; sub: string }> = {
+  ai:           { group: "intelligence", sub: "ai" },
+  mcp:          { group: "intelligence", sub: "mcp" },
+  catalog:      { group: "intelligence", sub: "catalog" },
+  knowledge:    { group: "knowledge",    sub: "" },
+  branding:     { group: "settings",     sub: "branding" },
+  settings:     { group: "settings",     sub: "platform" },
+  org:          { group: "settings",     sub: "org" },
+  members:      { group: "team",         sub: "members" },
+  roles:        { group: "team",         sub: "roles" },
+  sso:          { group: "security",     sub: "sso" },
+  sessions:     { group: "security",     sub: "sessions" },
+  audit:        { group: "security",     sub: "audit" },
+  intelligence: { group: "intelligence", sub: "ai" },
+  team:         { group: "team",         sub: "members" },
+  security:     { group: "security",     sub: "sso" },
+};
 
 export default function AdminPage() {
   return (
@@ -48,50 +92,81 @@ export default function AdminPage() {
 
 function AdminPageInner() {
   const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState(searchParams.get("tab") ?? "ai");
+  const tabParam = searchParams.get("tab");
+  const initialNav = TAB_PARAM_MAP[tabParam ?? ""] ?? { group: "intelligence" as GroupId, sub: "ai" };
+
+  const [activeGroup, setActiveGroup] = useState<GroupId>(initialNav.group);
+  const [activeSubTab, setActiveSubTab] = useState(initialNav.sub);
 
   useEffect(() => {
-    const tab = searchParams.get("tab");
-    if (tab) setActiveTab(tab);
+    const param = searchParams.get("tab");
+    const nav = TAB_PARAM_MAP[param ?? ""] ?? { group: "intelligence" as GroupId, sub: "ai" };
+    setActiveGroup(nav.group);
+    setActiveSubTab(nav.sub);
   }, [searchParams]);
+
+  const subTabs = SUB_TABS[activeGroup];
 
   return (
     <div className="flex h-screen bg-surface-0 overflow-hidden">
       <Sidebar />
 
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        {/* Tab bar */}
+        {/* Main tab bar */}
         <div className="flex items-end gap-1 px-6 border-b border-border shrink-0">
-          {TABS.map((tab) => (
+          {GROUPS.map((group) => (
             <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
+              key={group.id}
+              onClick={() => {
+                setActiveGroup(group.id);
+                setActiveSubTab(DEFAULT_SUB[group.id]);
+              }}
               className={cn(
                 "px-4 py-3 text-sm font-medium transition-colors border-b-2 -mb-px",
-                activeTab === tab.id
+                activeGroup === group.id
                   ? "border-violet text-violet"
                   : "border-transparent text-text-3 hover:text-text-2",
               )}
             >
-              {tab.label}
+              {group.label}
             </button>
           ))}
         </div>
 
+        {/* Sub-tab pill row */}
+        {subTabs.length > 0 && (
+          <div className="flex items-center gap-1 px-6 py-2 border-b border-border shrink-0">
+            {subTabs.map((sub) => (
+              <button
+                key={sub.id}
+                onClick={() => setActiveSubTab(sub.id)}
+                className={cn(
+                  "px-3 py-1 rounded-md text-xs font-medium transition-colors",
+                  activeSubTab === sub.id
+                    ? "bg-surface-2 text-text-1"
+                    : "text-text-3 hover:text-text-2",
+                )}
+              >
+                {sub.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Tab content */}
         <main className="flex-1 overflow-y-auto">
-          {activeTab === "knowledge" && <div className="p-6"><KnowledgeSourcesTab /></div>}
-          {activeTab === "mcp"       && <div className="p-6"><McpServersTab /></div>}
-          {activeTab === "ai"        && <div className="p-6"><AiModelsTab /></div>}
-          {activeTab === "catalog"   && <div className="p-6"><CatalogSourcesTab /></div>}
-          {activeTab === "branding"  && <div className="p-6"><BrandingTab /></div>}
-          {activeTab === "settings"  && <div className="p-6"><SettingsTab /></div>}
-          {activeTab === "org"       && <OrgSettingsTab />}
-          {activeTab === "members"   && <MembersTab />}
-          {activeTab === "roles"     && <RolesTab />}
-          {activeTab === "sso"       && <SsoTab />}
-          {activeTab === "audit"     && <AuditLogTab />}
-          {activeTab === "sessions"  && <SessionsTab />}
+          {activeGroup === "intelligence" && activeSubTab === "ai"       && <div className="p-6"><AiModelsTab /></div>}
+          {activeGroup === "intelligence" && activeSubTab === "mcp"      && <div className="p-6"><McpServersTab /></div>}
+          {activeGroup === "intelligence" && activeSubTab === "catalog"  && <div className="p-6"><CatalogSourcesTab /></div>}
+          {activeGroup === "knowledge"                                   && <div className="p-6"><KnowledgeSourcesTab /></div>}
+          {activeGroup === "settings"     && activeSubTab === "branding" && <div className="p-6"><BrandingTab /></div>}
+          {activeGroup === "settings"     && activeSubTab === "platform" && <div className="p-6"><SettingsTab /></div>}
+          {activeGroup === "settings"     && activeSubTab === "org"      && <OrgSettingsTab />}
+          {activeGroup === "team"         && activeSubTab === "members"  && <MembersTab />}
+          {activeGroup === "team"         && activeSubTab === "roles"    && <RolesTab />}
+          {activeGroup === "security"     && activeSubTab === "sso"      && <SsoTab />}
+          {activeGroup === "security"     && activeSubTab === "sessions" && <SessionsTab />}
+          {activeGroup === "security"     && activeSubTab === "audit"    && <AuditLogTab />}
         </main>
       </div>
     </div>
@@ -995,7 +1070,7 @@ function ProvidersView({
   );
 }
 
-function ModelRow({ model, onToggle }: { model: AiModel; onToggle: () => void }) {
+function ModelRow({ model, onToggle, onDelete }: { model: AiModel; onToggle: () => void; onDelete?: () => void }) {
   return (
     <motion.div layout initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 8 }}
       className="glass rounded-xl px-4 py-3 flex items-center gap-4">
@@ -1024,12 +1099,21 @@ function ModelRow({ model, onToggle }: { model: AiModel; onToggle: () => void })
         </div>
         <p className="text-xs text-text-3 font-mono mt-0.5">{model.model_id}</p>
       </div>
+      {onDelete && (
+        <button onClick={onDelete} title="Remove model"
+          className="text-text-3 hover:text-rose-400 transition-colors shrink-0 p-0.5">
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      )}
     </motion.div>
   );
 }
 
 function ModelsView({ models, mutate, loading }: { models: AiModel[]; mutate: () => void; loading: boolean }) {
   const [filterProvider, setFilterProvider] = useState("all");
+  const [deleteTarget, setDeleteTarget] = useState<AiModel | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   const providerNames = [...new Set(models.map((m) => m.provider))].sort();
   const filtered = filterProvider === "all" ? models : models.filter((m) => m.provider === filterProvider);
@@ -1039,6 +1123,20 @@ function ModelsView({ models, mutate, loading }: { models: AiModel[]; mutate: ()
   const handleToggle = async (m: AiModel) => {
     try { await api.aiModels.update(m.id, { enabled: !m.enabled }); mutate(); }
     catch (e) { console.error(e); }
+  };
+
+  const handleDelete = async (m: AiModel, uninstall: boolean) => {
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      await api.aiModels.delete(m.id, uninstall);
+      setDeleteTarget(null);
+      mutate();
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Failed to remove model");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   if (loading) return (
@@ -1088,8 +1186,49 @@ function ModelsView({ models, mutate, loading }: { models: AiModel[]; mutate: ()
             <p className="text-xs font-medium text-text-2 uppercase tracking-widest">Local / Open Source</p>
           </div>
           <AnimatePresence>
-            {localModels.map((m) => <ModelRow key={m.id} model={m} onToggle={() => handleToggle(m)} />)}
+            {localModels.map((m) => (
+              <ModelRow key={m.id} model={m} onToggle={() => handleToggle(m)} onDelete={() => setDeleteTarget(m)} />
+            ))}
           </AnimatePresence>
+        </div>
+      )}
+
+      {/* Delete confirmation modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={(e) => { if (e.target === e.currentTarget && !deleting) { setDeleteTarget(null); setDeleteError(""); } }}>
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+            className="glass rounded-2xl p-6 w-full max-w-sm mx-4 space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold text-text-1">Remove {deleteTarget.name}?</h3>
+              <p className="text-xs text-text-3 mt-1 font-mono">{deleteTarget.model_id}</p>
+            </div>
+            {deleteError && <p className="text-xs text-rose-400">{deleteError}</p>}
+            <div className="space-y-2">
+              <button onClick={() => handleDelete(deleteTarget, false)} disabled={deleting}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-border disabled:opacity-40 transition-colors text-left">
+                <X className="w-4 h-4 text-text-3 shrink-0" />
+                <div>
+                  <p className="text-xs font-medium text-text-1">Remove from app</p>
+                  <p className="text-[10px] text-text-3 mt-0.5">Keeps model files on disk — can re-add later</p>
+                </div>
+              </button>
+              <button onClick={() => handleDelete(deleteTarget, true)} disabled={deleting}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-rose-400/10 hover:bg-rose-400/20 border border-rose-400/20 disabled:opacity-40 transition-colors text-left">
+                {deleting
+                  ? <Loader2 className="w-4 h-4 text-rose-400 shrink-0 animate-spin" />
+                  : <Trash2 className="w-4 h-4 text-rose-400 shrink-0" />}
+                <div>
+                  <p className="text-xs font-medium text-rose-400">Uninstall &amp; free disk</p>
+                  <p className="text-[10px] text-rose-400/60 mt-0.5">Deletes model files from Ollama</p>
+                </div>
+              </button>
+            </div>
+            <button onClick={() => { setDeleteTarget(null); setDeleteError(""); }} disabled={deleting}
+              className="w-full text-xs text-text-3 hover:text-text-2 transition-colors py-1 disabled:opacity-40">
+              Cancel
+            </button>
+          </motion.div>
         </div>
       )}
     </div>
@@ -2612,15 +2751,23 @@ function ModelCatalogCard({
   const pull = usePullState(model.ollamaId);
   const [registering, setRegistering] = useState(false);
 
-  const autoRegister = async () => {
+  const autoRegister = async (): Promise<boolean> => {
     try {
       await api.aiModels.create({
         name: model.name, type: "local", provider: "Ollama",
         model_id: model.ollamaId, base_url: ollamaUrl,
         description: model.description, enabled: false,
       });
-    } catch { /* model may already exist */ }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!msg.includes("409")) {
+        pull.set({ state: "error", error: `Could not register model: ${msg}` });
+        return false;
+      }
+      // 409 = already registered — fine
+    }
     onRegistered();
+    return true;
   };
 
   const handleDownload = async () => {
@@ -2629,7 +2776,7 @@ function ModelCatalogCard({
     await api.aiModels.pullOllama(
       model.ollamaId, ollamaUrl,
       (status, pct) => pull.set({ status, pct }),
-      async () => { await autoRegister(); pull.set({ state: "done" }); },
+      async () => { const ok = await autoRegister(); if (ok) pull.set({ state: "done" }); },
       (err) => pull.set({ state: "error", error: err }),
     );
   };
@@ -2673,7 +2820,7 @@ function ModelCatalogCard({
             )}
             {isReady && (
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-400/10 text-emerald-400 border border-emerald-400/20 font-medium">
-                Active
+                Registered
               </span>
             )}
             {installedInOllama && !isReady && (
@@ -2743,7 +2890,7 @@ function ModelCatalogCard({
         {pull.state === "done" && (
           <div className="flex items-center gap-1.5 text-emerald-400 text-xs">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            Ready to use — model is now active
+            Added to Models tab — enable it there to start using it
           </div>
         )}
 
@@ -2764,7 +2911,7 @@ function ModelCatalogCard({
             {isReady ? (
               <div className="flex items-center gap-1.5 text-emerald-400 text-xs">
                 <CheckCircle2 className="w-3.5 h-3.5" />
-                Configured &amp; ready
+                In Models tab — toggle to enable
               </div>
             ) : installedInOllama ? (
               <button

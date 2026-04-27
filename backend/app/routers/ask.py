@@ -18,6 +18,18 @@ from app.models.mcp_server import McpServer
 router = APIRouter(prefix="/ask", tags=["ask"])
 logger = logging.getLogger(__name__)
 
+
+def _is_raw_tool_call(content: str) -> bool:
+    """Return True when a model outputs a JSON tool-call as text instead of structured tool_calls."""
+    text = content.strip()
+    if not (text.startswith("{") and text.endswith("}")):
+        return False
+    try:
+        obj = json.loads(text)
+        return isinstance(obj, dict) and "name" in obj and ("parameters" in obj or "arguments" in obj)
+    except Exception:
+        return False
+
 BASE_SYSTEM_PROMPT = (
     "You are Lanara, a general-purpose AI agent. "
     "You help users complete tasks by reasoning through problems and, when tools are "
@@ -54,7 +66,22 @@ async def ask_lanara(payload: AskRequest, db: AsyncSession = Depends(get_db)):
         servers = result.scalars().all()
         tools = await get_mcp_tools(servers)
 
-        llm_bound = llm.bind_tools(tools) if tools else llm
+        if tools:
+            try:
+                llm_bound = llm.bind_tools(tools)
+            except Exception:
+                # One or more tool schemas are invalid — filter them out individually
+                valid: list = []
+                for t in tools:
+                    try:
+                        llm.bind_tools([t])
+                        valid.append(t)
+                    except Exception:
+                        logger.warning("Skipping tool '%s' — schema validation error", getattr(t, "name", "?"))
+                tools = valid
+                llm_bound = llm.bind_tools(tools) if tools else llm
+        else:
+            llm_bound = llm
 
         messages: list = [SystemMessage(content=BASE_SYSTEM_PROMPT)]
         for msg in payload.history[-20:]:
@@ -80,6 +107,12 @@ async def ask_lanara(payload: AskRequest, db: AsyncSession = Depends(get_db)):
 
                 if not getattr(response, "tool_calls", None):
                     content = response.content
+                    # Small/local models sometimes output a raw JSON tool-call as text instead
+                    # of using the structured tool_calls field — detect and retry without tools.
+                    if isinstance(content, str) and _is_raw_tool_call(content) and bound is not llm:
+                        logger.warning("Model returned raw tool-call JSON — retrying without tools")
+                        response = await llm.ainvoke(msgs[:-1])
+                        content = response.content
                     if isinstance(content, list):
                         for block in content:
                             if isinstance(block, dict) and block.get("type") == "text":

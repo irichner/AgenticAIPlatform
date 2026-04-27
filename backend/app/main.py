@@ -39,16 +39,47 @@ async def _catalog_sync_loop():
         await asyncio.sleep(_CATALOG_POLL_SECONDS)
 
 
+async def _ollama_warmup():
+    """On startup, load all enabled local models into Ollama VRAM."""
+    from app.db.engine import AsyncSessionLocal as db_session
+    from app.models.ai_model import AiModel as AiModelTable
+    from app.routers.ai_models import _ollama_set_keepalive
+    from sqlalchemy import select as sa_select
+
+    await asyncio.sleep(20)  # Let Ollama finish booting before sending requests
+
+    try:
+        async with db_session() as db:
+            result = await db.execute(
+                sa_select(AiModelTable).where(
+                    AiModelTable.enabled == True,  # noqa: E712
+                    AiModelTable.type == "local",
+                )
+            )
+            models = result.scalars().all()
+
+        for m in models:
+            await _ollama_set_keepalive(
+                m.model_id,
+                m.base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+                -1,
+            )
+    except Exception:
+        pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.core.checkpointer import get_checkpointer
     app.state.checkpointer = await get_checkpointer()
     task_provider = asyncio.create_task(_daily_provider_sync())
     task_catalog  = asyncio.create_task(_catalog_sync_loop())
+    task_warmup   = asyncio.create_task(_ollama_warmup())
     yield
     task_provider.cancel()
     task_catalog.cancel()
-    for t in (task_provider, task_catalog):
+    task_warmup.cancel()
+    for t in (task_provider, task_catalog, task_warmup):
         try:
             await t
         except asyncio.CancelledError:

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from sqlalchemy import select, delete
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.api_provider import ApiProvider
@@ -263,26 +263,40 @@ async def sync_provider(db: AsyncSession, provider: ApiProvider) -> ApiProvider:
         await db.refresh(provider)
         return provider
 
-    # Delete old auto-managed models and re-insert
-    await db.execute(
-        delete(AiModel).where(
+    # Upsert: preserve enabled state on existing models, only reset it for new ones
+    result = await db.execute(
+        select(AiModel).where(
             AiModel.provider_id == provider.id,
             AiModel.is_auto_managed == True,  # noqa: E712
         )
     )
+    existing_map = {m.model_id: m for m in result.scalars().all()}
+    incoming_ids = {m["id"] for m in models}
 
+    # Remove models that disappeared from the provider catalog
+    for model_id, model in existing_map.items():
+        if model_id not in incoming_ids:
+            await db.delete(model)
+
+    # Update existing models (keep enabled), insert new ones (start disabled)
     for m in models:
-        db.add(AiModel(
-            provider_id=provider.id,
-            name=m["name"],
-            type="api",
-            provider=provider.name,
-            model_id=m["id"],
-            context_window=m.get("context_window"),
-            capabilities=m.get("capabilities"),
-            is_auto_managed=True,
-            enabled=False,
-        ))
+        if m["id"] in existing_map:
+            row = existing_map[m["id"]]
+            row.name = m["name"]
+            row.context_window = m.get("context_window")
+            row.capabilities = m.get("capabilities")
+        else:
+            db.add(AiModel(
+                provider_id=provider.id,
+                name=m["name"],
+                type="api",
+                provider=provider.name,
+                model_id=m["id"],
+                context_window=m.get("context_window"),
+                capabilities=m.get("capabilities"),
+                is_auto_managed=True,
+                enabled=False,
+            ))
 
     provider.status = "connected"
     provider.last_synced_at = datetime.now(timezone.utc)
@@ -325,27 +339,40 @@ async def connect_provider(
         provider.status = "connected"
         provider.last_synced_at = datetime.now(timezone.utc)
         provider.updated_at = datetime.now(timezone.utc)
-        # Clear old auto-managed models
-        await db.execute(
-            delete(AiModel).where(
-                AiModel.provider_id == provider.id,
-                AiModel.is_auto_managed == True,  # noqa: E712
-            )
-        )
         await db.flush()
 
+    # Upsert: preserve enabled state on existing models, only reset it for new ones
+    existing_result = await db.execute(
+        select(AiModel).where(
+            AiModel.provider_id == provider.id,
+            AiModel.is_auto_managed == True,  # noqa: E712
+        )
+    )
+    existing_map = {m.model_id: m for m in existing_result.scalars().all()}
+    incoming_ids = {m["id"] for m in models}
+
+    for model_id, model in existing_map.items():
+        if model_id not in incoming_ids:
+            await db.delete(model)
+
     for m in models:
-        db.add(AiModel(
-            provider_id=provider.id,
-            name=m["name"],
-            type="api",
-            provider=name,
-            model_id=m["id"],
-            context_window=m.get("context_window"),
-            capabilities=m.get("capabilities"),
-            is_auto_managed=True,
-            enabled=False,
-        ))
+        if m["id"] in existing_map:
+            row = existing_map[m["id"]]
+            row.name = m["name"]
+            row.context_window = m.get("context_window")
+            row.capabilities = m.get("capabilities")
+        else:
+            db.add(AiModel(
+                provider_id=provider.id,
+                name=m["name"],
+                type="api",
+                provider=name,
+                model_id=m["id"],
+                context_window=m.get("context_window"),
+                capabilities=m.get("capabilities"),
+                is_auto_managed=True,
+                enabled=False,
+            ))
 
     await db.commit()
     await db.refresh(provider)

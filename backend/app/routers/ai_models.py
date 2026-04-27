@@ -1,6 +1,7 @@
 from __future__ import annotations
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
+import asyncio
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -13,6 +14,18 @@ from app.models.ai_model import AiModel
 from app.schemas.ai_model import AiModelCreate, AiModelUpdate, AiModelOut
 
 router = APIRouter(prefix="/ai-models", tags=["ai-models"])
+
+
+async def _ollama_set_keepalive(model_id: str, base_url: str, keep_alive: int) -> None:
+    """Load (keep_alive=-1) or unload (keep_alive=0) a model in Ollama. Fire-and-forget safe."""
+    url = base_url.rstrip("/")
+    if url.endswith("/v1"):
+        url = url[:-3]  # /api/generate is native Ollama, not OpenAI-compat
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            await client.post(f"{url}/api/generate", json={"model": model_id, "keep_alive": keep_alive})
+    except Exception:
+        pass
 
 _STATIC_MODELS: dict[str, list[dict]] = {
     "anthropic": [
@@ -174,18 +187,42 @@ async def update_ai_model(model_id: UUID, payload: AiModelUpdate, db: AsyncSessi
     model = result.scalar_one_or_none()
     if model is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI model not found")
+    was_enabled = model.enabled
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(model, field, value)
     await db.commit()
     await db.refresh(model)
+    # Sync VRAM when toggling a local model: load on enable, unload on disable
+    if model.type == "local" and payload.enabled is not None and payload.enabled != was_enabled:
+        ollama_base = model.base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        asyncio.create_task(_ollama_set_keepalive(model.model_id, ollama_base, -1 if model.enabled else 0))
     return AiModelOut.from_orm_mask(model)
 
 
 @router.delete("/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_ai_model(model_id: UUID, db: AsyncSession = Depends(get_db)):
+async def delete_ai_model(
+    model_id: UUID,
+    uninstall: bool = Query(False, description="Also delete model files from Ollama"),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(select(AiModel).where(AiModel.id == model_id))
     model = result.scalar_one_or_none()
     if model is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI model not found")
+
+    if uninstall and model.type == "local":
+        ollama_url = (model.base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")).rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.delete(f"{ollama_url}/api/delete", json={"name": model.model_id})
+                if resp.status_code not in (200, 404):
+                    resp.raise_for_status()
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=502, detail="Timed out connecting to Ollama — is it running?")
+        except httpx.ConnectError:
+            raise HTTPException(status_code=502, detail="Could not connect to Ollama — check the service is running")
+        except httpx.HTTPStatusError as exc:
+            raise HTTPException(status_code=502, detail=f"Ollama returned {exc.response.status_code}")
+
     await db.delete(model)
     await db.commit()
