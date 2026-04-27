@@ -3,6 +3,7 @@ from pydantic import BaseModel, ConfigDict
 from uuid import UUID
 from datetime import datetime
 from typing import Any
+from app.schemas.mcp_server import McpServerOut
 
 
 class AgentBase(BaseModel):
@@ -15,6 +16,8 @@ class AgentCreate(AgentBase):
     prompt: str | None = None
     status: str | None = None
     group_id: UUID | None = None
+    model_id: UUID | None = None
+    mcp_server_ids: list[UUID] | None = None
 
 
 class AgentUpdate(BaseModel):
@@ -24,6 +27,8 @@ class AgentUpdate(BaseModel):
     group_id: UUID | None = None
     business_unit_id: UUID | None = None
     prompt: str | None = None
+    model_id: UUID | None = None
+    mcp_server_ids: list[UUID] | None = None
 
 
 class AgentOut(AgentBase):
@@ -31,10 +36,12 @@ class AgentOut(AgentBase):
 
     id: UUID
     group_id: UUID | None
+    model_id: UUID | None
     status: str
     created_by: UUID | None
     created_at: datetime
     updated_at: datetime
+    mcp_servers: list[McpServerOut] = []
 
 
 class AgentVersionOut(BaseModel):

@@ -3,9 +3,11 @@
 import { useState, useRef, Suspense, useEffect, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import useSWR from "swr";
+import { Server } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { CanvasView } from "@/components/canvas/CanvasView";
-import { api, type BusinessUnit, type Agent, type AgentGroup } from "@/lib/api";
+import { api, type BusinessUnit, type Agent, type AgentGroup, type AiModel, type McpServer } from "@/lib/api";
+import { cn } from "@/lib/cn";
 
 // ── Shared field styles ───────────────────────────────────────────────────────
 
@@ -46,31 +48,166 @@ function useGenerateInstructions(
   return { generating, genError, generate };
 }
 
+// ── MCP server picker ─────────────────────────────────────────────────────────
+
+interface McpPickerProps {
+  mcpServers: McpServer[];
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+}
+
+function McpPicker({ mcpServers, selectedIds, onChange }: McpPickerProps) {
+  const toggle = (id: string) => {
+    onChange(
+      selectedIds.includes(id)
+        ? selectedIds.filter((s) => s !== id)
+        : [...selectedIds, id],
+    );
+  };
+
+  const activeCount = selectedIds.filter((id) => mcpServers.some((s) => s.id === id)).length;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between">
+        <label className={labelCls}>MCP Servers</label>
+        <span className="text-xs text-text-3">
+          {activeCount > 0 ? `${activeCount} of ${mcpServers.length}` : mcpServers.length > 0 ? "none" : ""}
+        </span>
+      </div>
+
+      {mcpServers.length === 0 ? (
+        <p className="text-xs text-text-3 italic">No MCP servers registered. Add them in Admin → MCP Servers.</p>
+      ) : (
+        <div className="rounded-xl border border-border overflow-hidden">
+          {mcpServers.map((server, i) => {
+            const active = selectedIds.includes(server.id);
+            return (
+              <button
+                key={server.id}
+                type="button"
+                onClick={() => toggle(server.id)}
+                className={cn(
+                  "w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors",
+                  i > 0 && "border-t border-border",
+                  active ? "bg-violet/8" : "hover:bg-surface-2",
+                )}
+              >
+                <div className={cn(
+                  "w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-colors",
+                  active ? "bg-violet/20" : "bg-surface-2",
+                )}>
+                  <Server className={cn("w-3 h-3", active ? "text-violet" : "text-text-3")} />
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <p className={cn("text-xs font-medium truncate", active ? "text-text-1" : "text-text-2")}>
+                    {server.name}
+                  </p>
+                  {server.description && (
+                    <p className="text-[10px] text-text-3 truncate">{server.description}</p>
+                  )}
+                </div>
+
+                <span className={cn(
+                  "text-[9px] px-1.5 py-0.5 rounded font-medium shrink-0 uppercase tracking-wide",
+                  active ? "bg-violet/15 text-violet" : "bg-surface-2 text-text-3",
+                )}>
+                  {server.transport.replace(/_/g, " ")}
+                </span>
+
+                <div className={cn(
+                  "w-3.5 h-3.5 rounded-full border shrink-0 transition-colors",
+                  active ? "bg-violet border-violet" : "border-border",
+                )} />
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Agent create panel ────────────────────────────────────────────────────────
 
 interface AgentCreatePanelProps {
   businessUnits: BusinessUnit[];
   groups: AgentGroup[];
+  aiModels: AiModel[];
+  mcpServers: McpServer[];
   onClose: () => void;
   onCreated: () => void;
 }
 
-function AgentCreatePanel({ businessUnits, groups, onClose, onCreated }: AgentCreatePanelProps) {
+function AgentCreatePanel({ businessUnits, groups, aiModels, mcpServers, onClose, onCreated }: AgentCreatePanelProps) {
   const [name, setName]               = useState("");
   const [description, setDescription] = useState("");
   const [buId, setBuId]               = useState(businessUnits[0]?.id ?? "");
   const [groupId, setGroupId]         = useState<string>("");
+  const [modelId, setModelId]         = useState<string>("");
   const [status, setStatus]           = useState<string>("draft");
   const [prompt, setPrompt]           = useState("");
+  const [mcpIds, setMcpIds]           = useState<string[]>([]);
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState<string | null>(null);
 
-  useEffect(() => {
-    if (businessUnits.length > 0 && !buId) setBuId(businessUnits[0].id);
-  }, [businessUnits, buId]);
+  // Inline swarm creation
+  const [creatingSwarm, setCreatingSwarm]   = useState(false);
+  const [newSwarmName, setNewSwarmName]     = useState("");
+  const [savingSwarm, setSavingSwarm]       = useState(false);
+  const [extraUnits, setExtraUnits]         = useState<BusinessUnit[]>([]);
 
-  const buGroups = groups.filter((g) => g.business_unit_id === buId);
-  const swarmName = businessUnits.find((b) => b.id === buId)?.name ?? "";
+  // Inline group creation
+  const [creatingGroup, setCreatingGroup]   = useState(false);
+  const [newGroupName, setNewGroupName]     = useState("");
+  const [savingGroup, setSavingGroup]       = useState(false);
+  const [extraGroups, setExtraGroups]       = useState<AgentGroup[]>([]);
+
+  const allUnits  = [...businessUnits, ...extraUnits];
+  const allGroups = [...groups, ...extraGroups];
+
+  useEffect(() => {
+    if (allUnits.length > 0 && !buId) setBuId(allUnits[0].id);
+  }, [businessUnits, buId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleCreateSwarm = async () => {
+    const n = newSwarmName.trim();
+    if (!n) return;
+    setSavingSwarm(true);
+    try {
+      const unit = await api.businessUnits.create({ name: n });
+      setExtraUnits((prev) => [...prev, unit]);
+      setBuId(unit.id);
+      setGroupId("");
+      setCreatingSwarm(false);
+      setNewSwarmName("");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSavingSwarm(false);
+    }
+  };
+
+  const handleCreateGroup = async () => {
+    const n = newGroupName.trim();
+    if (!n || !buId) return;
+    setSavingGroup(true);
+    try {
+      const group = await api.groups.create({ name: n, business_unit_id: buId });
+      setExtraGroups((prev) => [...prev, group]);
+      setGroupId(group.id);
+      setCreatingGroup(false);
+      setNewGroupName("");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSavingGroup(false);
+    }
+  };
+
+  const buGroups  = allGroups.filter((g) => g.business_unit_id === buId);
+  const swarmName = allUnits.find((b) => b.id === buId)?.name ?? "";
 
   const { generating, genError, generate } = useGenerateInstructions(
     useCallback(() => name, [name]),
@@ -89,8 +226,10 @@ function AgentCreatePanel({ businessUnits, groups, onClose, onCreated }: AgentCr
         description: description.trim() || undefined,
         business_unit_id: buId,
         group_id: groupId || undefined,
+        model_id: modelId || null,
         status,
         prompt: prompt.trim() || undefined,
+        mcp_server_ids: mcpIds,
       });
       onCreated();
     } catch (err) {
@@ -118,21 +257,91 @@ function AgentCreatePanel({ businessUnits, groups, onClose, onCreated }: AgentCr
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className={labelCls}>Swarm *</label>
-          {businessUnits.length === 0 ? (
-            <p className="text-xs text-text-3 italic">No swarms available — create one first.</p>
+          <div className="flex items-center justify-between">
+            <label className={labelCls}>Swarm *</label>
+            <button
+              type="button"
+              onClick={() => { setCreatingSwarm((v) => !v); setNewSwarmName(""); }}
+              className="text-xs text-violet hover:text-violet/80 transition-colors"
+            >
+              {creatingSwarm ? "Cancel" : "+ New"}
+            </button>
+          </div>
+          {creatingSwarm ? (
+            <div className="flex gap-2">
+              <input
+                autoFocus
+                value={newSwarmName}
+                onChange={(e) => setNewSwarmName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleCreateSwarm(); if (e.key === "Escape") setCreatingSwarm(false); }}
+                placeholder="Swarm name…"
+                disabled={savingSwarm}
+                className={`${inputCls} flex-1`}
+              />
+              <button
+                onClick={handleCreateSwarm}
+                disabled={savingSwarm || !newSwarmName.trim()}
+                className="px-3 py-2 rounded-xl bg-violet/20 hover:bg-violet/35 disabled:opacity-40 text-violet text-xs font-medium transition-colors shrink-0"
+              >
+                {savingSwarm ? "…" : "Create"}
+              </button>
+            </div>
+          ) : allUnits.length === 0 ? (
+            <p className="text-xs text-text-3 italic">No swarms yet — create one above.</p>
           ) : (
             <select value={buId} onChange={(e) => { setBuId(e.target.value); setGroupId(""); }} className={selectCls}>
-              {businessUnits.map((bu) => <option key={bu.id} value={bu.id}>{bu.name}</option>)}
+              {allUnits.map((bu) => <option key={bu.id} value={bu.id}>{bu.name}</option>)}
             </select>
           )}
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className={labelCls}>Group</label>
-          <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className={selectCls} disabled={buGroups.length === 0}>
-            <option value="">No group</option>
-            {buGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          <div className="flex items-center justify-between">
+            <label className={labelCls}>Group</label>
+            {buId && (
+              <button
+                type="button"
+                onClick={() => { setCreatingGroup((v) => !v); setNewGroupName(""); }}
+                className="text-xs text-violet hover:text-violet/80 transition-colors"
+              >
+                {creatingGroup ? "Cancel" : "+ New"}
+              </button>
+            )}
+          </div>
+          {creatingGroup ? (
+            <div className="flex gap-2">
+              <input
+                autoFocus
+                value={newGroupName}
+                onChange={(e) => setNewGroupName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleCreateGroup(); if (e.key === "Escape") setCreatingGroup(false); }}
+                placeholder="Group name…"
+                disabled={savingGroup}
+                className={`${inputCls} flex-1`}
+              />
+              <button
+                onClick={handleCreateGroup}
+                disabled={savingGroup || !newGroupName.trim()}
+                className="px-3 py-2 rounded-xl bg-violet/20 hover:bg-violet/35 disabled:opacity-40 text-violet text-xs font-medium transition-colors shrink-0"
+              >
+                {savingGroup ? "…" : "Create"}
+              </button>
+            </div>
+          ) : (
+            <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className={selectCls} disabled={buGroups.length === 0}>
+              <option value="">No group</option>
+              {buGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className={labelCls}>AI Model</label>
+          <select value={modelId} onChange={(e) => setModelId(e.target.value)} className={selectCls}>
+            <option value="">Platform default</option>
+            {aiModels.filter((m) => m.enabled).map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
           </select>
         </div>
 
@@ -144,6 +353,8 @@ function AgentCreatePanel({ businessUnits, groups, onClose, onCreated }: AgentCr
             <option value="archived">Archived</option>
           </select>
         </div>
+
+        <McpPicker mcpServers={mcpServers} selectedIds={mcpIds} onChange={setMcpIds} />
 
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
@@ -182,18 +393,37 @@ interface AgentPropertiesPanelProps {
   agent: Agent;
   businessUnits: BusinessUnit[];
   allGroups: AgentGroup[];
+  aiModels: AiModel[];
+  mcpServers: McpServer[];
   onClose: () => void;
   onUpdated: () => void;
   onRun: (agentId: string) => void;
 }
 
-function AgentPropertiesPanel({ agent, businessUnits, allGroups, onClose, onUpdated, onRun }: AgentPropertiesPanelProps) {
+function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpServers, onClose, onUpdated, onRun }: AgentPropertiesPanelProps) {
   const [name, setName]               = useState(agent.name);
   const [description, setDescription] = useState(agent.description ?? "");
   const [buId, setBuId]               = useState(agent.business_unit_id);
   const [groupId, setGroupId]         = useState(agent.group_id ?? "");
+  const [modelId, setModelId]         = useState(agent.model_id ?? "");
   const [status, setStatus]           = useState(agent.status);
   const [prompt, setPrompt]           = useState<string>("");
+  const [mcpIds, setMcpIds]           = useState<string[]>(agent.mcp_servers?.map((s) => s.id) ?? []);
+
+  // Inline swarm creation
+  const [creatingSwarm, setCreatingSwarm]   = useState(false);
+  const [newSwarmName, setNewSwarmName]     = useState("");
+  const [savingSwarm, setSavingSwarm]       = useState(false);
+  const [extraUnits, setExtraUnits]         = useState<BusinessUnit[]>([]);
+
+  // Inline group creation
+  const [creatingGroup, setCreatingGroup]   = useState(false);
+  const [newGroupName, setNewGroupName]     = useState("");
+  const [savingGroup, setSavingGroup]       = useState(false);
+  const [extraGroups, setExtraGroups]       = useState<AgentGroup[]>([]);
+
+  const allUnits      = [...businessUnits, ...extraUnits];
+  const effectiveGroups = [...allGroups, ...extraGroups];
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState<string | null>(null);
   // True once localStorage has supplied the prompt so the versions effect doesn't overwrite it
@@ -217,7 +447,9 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, onClose, onUpda
         setDescription(s.description ?? (agent.description ?? ""));
         setBuId(s.buId         ?? agent.business_unit_id);
         setGroupId(s.groupId   ?? (agent.group_id ?? ""));
+        setModelId(s.modelId   ?? (agent.model_id ?? ""));
         setStatus(s.status     ?? agent.status);
+        setMcpIds(s.mcpIds     ?? (agent.mcp_servers?.map((m) => m.id) ?? []));
         if (s.prompt !== undefined) {
           setPrompt(s.prompt);
           promptFromStorage.current = true;
@@ -229,7 +461,9 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, onClose, onUpda
     setDescription(agent.description ?? "");
     setBuId(agent.business_unit_id);
     setGroupId(agent.group_id ?? "");
+    setModelId(agent.model_id ?? "");
     setStatus(agent.status);
+    setMcpIds(agent.mcp_servers?.map((m) => m.id) ?? []);
   }, [agent.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load prompt from the latest version — skip if already restored from localStorage.
@@ -243,13 +477,48 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, onClose, onUpda
     try {
       localStorage.setItem(
         AGENT_FORM_KEY(agent.id),
-        JSON.stringify({ name, description, buId, groupId, status, prompt }),
+        JSON.stringify({ name, description, buId, groupId, modelId, status, prompt, mcpIds }),
       );
     } catch { /* ignore */ }
-  }, [agent.id, name, description, buId, groupId, status, prompt]);
+  }, [agent.id, name, description, buId, groupId, modelId, status, prompt, mcpIds]);
 
-  const buGroups = allGroups.filter((g) => g.business_unit_id === buId);
-  const swarmName = businessUnits.find((b) => b.id === buId)?.name ?? "";
+  const handleCreateSwarm = async () => {
+    const n = newSwarmName.trim();
+    if (!n) return;
+    setSavingSwarm(true);
+    try {
+      const unit = await api.businessUnits.create({ name: n });
+      setExtraUnits((prev) => [...prev, unit]);
+      setBuId(unit.id);
+      setGroupId("");
+      setCreatingSwarm(false);
+      setNewSwarmName("");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSavingSwarm(false);
+    }
+  };
+
+  const handleCreateGroup = async () => {
+    const n = newGroupName.trim();
+    if (!n || !buId) return;
+    setSavingGroup(true);
+    try {
+      const group = await api.groups.create({ name: n, business_unit_id: buId });
+      setExtraGroups((prev) => [...prev, group]);
+      setGroupId(group.id);
+      setCreatingGroup(false);
+      setNewGroupName("");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSavingGroup(false);
+    }
+  };
+
+  const buGroups  = effectiveGroups.filter((g) => g.business_unit_id === buId);
+  const swarmName = allUnits.find((b) => b.id === buId)?.name ?? "";
 
   const { generating, genError, generate } = useGenerateInstructions(
     useCallback(() => name, [name]),
@@ -268,8 +537,10 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, onClose, onUpda
         description: description.trim() || undefined,
         business_unit_id: buId,
         group_id: groupId || null,
+        model_id: modelId || null,
         status,
         prompt: prompt.trim() || undefined,
+        mcp_server_ids: mcpIds,
       });
       try { localStorage.removeItem(AGENT_FORM_KEY(agent.id)); } catch { /* ignore */ }
       onUpdated();
@@ -302,17 +573,89 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, onClose, onUpda
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className={labelCls}>Swarm</label>
-          <select value={buId} onChange={(e) => { setBuId(e.target.value); setGroupId(""); }} className={selectCls}>
-            {businessUnits.map((bu) => <option key={bu.id} value={bu.id}>{bu.name}</option>)}
-          </select>
+          <div className="flex items-center justify-between">
+            <label className={labelCls}>Swarm</label>
+            <button
+              type="button"
+              onClick={() => { setCreatingSwarm((v) => !v); setNewSwarmName(""); }}
+              className="text-xs text-violet hover:text-violet/80 transition-colors"
+            >
+              {creatingSwarm ? "Cancel" : "+ New"}
+            </button>
+          </div>
+          {creatingSwarm ? (
+            <div className="flex gap-2">
+              <input
+                autoFocus
+                value={newSwarmName}
+                onChange={(e) => setNewSwarmName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleCreateSwarm(); if (e.key === "Escape") setCreatingSwarm(false); }}
+                placeholder="Swarm name…"
+                disabled={savingSwarm}
+                className={`${inputCls} flex-1`}
+              />
+              <button
+                onClick={handleCreateSwarm}
+                disabled={savingSwarm || !newSwarmName.trim()}
+                className="px-3 py-2 rounded-xl bg-violet/20 hover:bg-violet/35 disabled:opacity-40 text-violet text-xs font-medium transition-colors shrink-0"
+              >
+                {savingSwarm ? "…" : "Create"}
+              </button>
+            </div>
+          ) : (
+            <select value={buId} onChange={(e) => { setBuId(e.target.value); setGroupId(""); }} className={selectCls}>
+              {allUnits.map((bu) => <option key={bu.id} value={bu.id}>{bu.name}</option>)}
+            </select>
+          )}
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <label className={labelCls}>Group</label>
-          <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className={selectCls} disabled={buGroups.length === 0}>
-            <option value="">No group</option>
-            {buGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+          <div className="flex items-center justify-between">
+            <label className={labelCls}>Group</label>
+            {buId && (
+              <button
+                type="button"
+                onClick={() => { setCreatingGroup((v) => !v); setNewGroupName(""); }}
+                className="text-xs text-violet hover:text-violet/80 transition-colors"
+              >
+                {creatingGroup ? "Cancel" : "+ New"}
+              </button>
+            )}
+          </div>
+          {creatingGroup ? (
+            <div className="flex gap-2">
+              <input
+                autoFocus
+                value={newGroupName}
+                onChange={(e) => setNewGroupName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleCreateGroup(); if (e.key === "Escape") setCreatingGroup(false); }}
+                placeholder="Group name…"
+                disabled={savingGroup}
+                className={`${inputCls} flex-1`}
+              />
+              <button
+                onClick={handleCreateGroup}
+                disabled={savingGroup || !newGroupName.trim()}
+                className="px-3 py-2 rounded-xl bg-violet/20 hover:bg-violet/35 disabled:opacity-40 text-violet text-xs font-medium transition-colors shrink-0"
+              >
+                {savingGroup ? "…" : "Create"}
+              </button>
+            </div>
+          ) : (
+            <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className={selectCls} disabled={buGroups.length === 0}>
+              <option value="">No group</option>
+              {buGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className={labelCls}>AI Model</label>
+          <select value={modelId} onChange={(e) => setModelId(e.target.value)} className={selectCls}>
+            <option value="">Platform default</option>
+            {aiModels.filter((m) => m.enabled).map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
           </select>
         </div>
 
@@ -324,6 +667,8 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, onClose, onUpda
             <option value="archived">Archived</option>
           </select>
         </div>
+
+        <McpPicker mcpServers={mcpServers} selectedIds={mcpIds} onChange={setMcpIds} />
 
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
@@ -497,6 +842,16 @@ function CanvasPageInner() {
     () => api.groups.list(),
   );
 
+  const { data: aiModels = [] } = useSWR(
+    "ai-models-canvas",
+    () => api.aiModels.list(),
+  );
+
+  const { data: mcpServers = [] } = useSWR(
+    "mcp-servers-canvas",
+    () => api.mcpServers.list(),
+  );
+
   const refresh = () => { mutateUnits(); mutateAgents(); mutateGroups(); };
 
   const visibleUnits: BusinessUnit[] = unitFilter
@@ -513,6 +868,8 @@ function CanvasPageInner() {
       <AgentCreatePanel
         businessUnits={visibleUnits.length > 0 ? visibleUnits : (units as BusinessUnit[])}
         groups={groups as AgentGroup[]}
+        aiModels={aiModels as AiModel[]}
+        mcpServers={mcpServers as McpServer[]}
         onClose={() => setRightPanel(null)}
         onCreated={() => { setRightPanel(null); refresh(); }}
       />
@@ -521,6 +878,8 @@ function CanvasPageInner() {
         agent={selectedAgent}
         businessUnits={units as BusinessUnit[]}
         allGroups={groups as AgentGroup[]}
+        aiModels={aiModels as AiModel[]}
+        mcpServers={mcpServers as McpServer[]}
         onClose={() => setRightPanel(null)}
         onUpdated={() => { refresh(); }}
         onRun={(id) => setRightPanel({ type: "run", agentId: id })}

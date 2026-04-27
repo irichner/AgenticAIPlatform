@@ -11,10 +11,8 @@ import {
   useEdgesState,
   useReactFlow,
   useNodes,
-  addEdge,
   type Node,
   type Edge,
-  type Connection,
   type Viewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -153,7 +151,7 @@ function buildLayout(
               x: GROUP_PAD + col2 * (AGENT_W + AGENT_GAP),
               y: GROUP_HEADER + GROUP_PAD + row * (AGENT_H + AGENT_GAP),
             },
-            data: { id: agent.id, name: agent.name, description: agent.description, status: agent.status, onRun, onSelect } as unknown as Record<string, unknown>,
+            data: { id: agent.id, name: agent.name, description: agent.description, status: agent.status, mcpCount: agent.mcp_servers?.length ?? 0, mcpNames: agent.mcp_servers?.map((s) => s.name) ?? [], onRun, onSelect } as unknown as Record<string, unknown>,
             draggable: true,
           });
         });
@@ -170,7 +168,7 @@ function buildLayout(
           x: ZONE_PAD + col2 * (AGENT_W + AGENT_GAP),
           y: groupAreaBottom + row * (AGENT_H + AGENT_GAP),
         },
-        data: { id: agent.id, name: agent.name, description: agent.description, status: agent.status, onRun, onSelect } as unknown as Record<string, unknown>,
+        data: { id: agent.id, name: agent.name, description: agent.description, status: agent.status, mcpCount: agent.mcp_servers?.length ?? 0, mcpNames: agent.mcp_servers?.map((s) => s.name) ?? [], onRun, onSelect } as unknown as Record<string, unknown>,
         draggable: true,
       });
     });
@@ -302,11 +300,6 @@ export function CanvasView({ businessUnits, agents, groups, onRun, onSelectAgent
     setEdges(layout.edges);
   }, [layout, setNodes, setEdges]);
 
-  const onConnect = useCallback(
-    (params: Connection) => setEdges((eds) => addEdge(params, eds)),
-    [setEdges],
-  );
-
   const handleNodeDragStop = useCallback(
     (_event: React.MouseEvent, draggedNode: Node, allNodes: Node[]) => {
       // Persist zone positions after any drag
@@ -371,7 +364,6 @@ export function CanvasView({ businessUnits, agents, groups, onRun, onSelectAgent
       edges={edges}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
-      onConnect={onConnect}
       onNodeDragStop={handleNodeDragStop}
       onMoveEnd={handleMoveEnd}
       onPaneClick={handlePaneClick}

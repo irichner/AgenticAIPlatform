@@ -177,3 +177,49 @@ body {
 .workflow-canvas .react-flow__node.selected .wf-handle {
   opacity: 1;
 }
+
+/* Selected edge — brighter, thicker stroke */
+.workflow-canvas .react-flow__edge.selected .react-flow__edge-path {
+  stroke: rgb(139 92 246 / 1) !important;
+  stroke-width: 2.5 !important;
+}
+
+/* Edge hover */
+.workflow-canvas .react-flow__edge:hover .react-flow__edge-path {
+  stroke: rgb(139 92 246 / 0.9) !important;
+}
+
+/* Edge label background (the SVG foreignObject rect) */
+.workflow-canvas .react-flow__edge-textwrapper rect {
+  fill: rgb(10 10 20 / 0.85) !important;
+  rx: 6 !important;
+}
+
+/* Edge label text */
+.workflow-canvas .react-flow__edge-text {
+  fill: rgb(255 255 255 / 0.88) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+}
+
+/* Edge interaction hitbox — wider for easier clicking */
+.workflow-canvas .react-flow__edge-interaction {
+  stroke-width: 20 !important;
+  stroke: transparent !important;
+}
+
+/* Execution state highlights */
+.workflow-canvas .react-flow__node.node-exec-active > div {
+  box-shadow: 0 0 0 2px rgba(251,191,36,0.9), 0 0 20px rgba(251,191,36,0.35) !important;
+  animation: exec-pulse 1s ease-in-out infinite;
+}
+.workflow-canvas .react-flow__node.node-exec-done > div {
+  box-shadow: 0 0 0 2px rgba(52,211,153,0.7), 0 0 12px rgba(52,211,153,0.2) !important;
+}
+.workflow-canvas .react-flow__node.node-exec-error > div {
+  box-shadow: 0 0 0 2px rgba(251,113,133,0.9), 0 0 12px rgba(251,113,133,0.3) !important;
+}
+@keyframes exec-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(251,191,36,0.9), 0 0 20px rgba(251,191,36,0.35); }
+  50%       { box-shadow: 0 0 0 3px rgba(251,191,36,1),   0 0 32px rgba(251,191,36,0.55); }
+}

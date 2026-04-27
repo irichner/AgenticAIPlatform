@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.ai_model import AiModel
 
@@ -10,12 +11,31 @@ from app.models.ai_model import AiModel
 async def get_active_llm(db: AsyncSession):
     """Return a LangChain chat model for the first enabled AI model; falls back to Anthropic."""
     result = await db.execute(
-        select(AiModel).where(AiModel.enabled == True).order_by(AiModel.created_at).limit(1)
+        select(AiModel)
+        .options(selectinload(AiModel.provider_rel))
+        .where(AiModel.enabled == True)  # noqa: E712
+        .order_by(AiModel.created_at)
+        .limit(1)
     )
     model = result.scalar_one_or_none()
     if model is None:
         return _default_llm()
-    return build_llm(model)
+    provider_key = model.provider_rel.api_key if model.provider_rel else None
+    return build_llm(model, provider_api_key=provider_key)
+
+
+async def get_llm_by_id(db: AsyncSession, model_id: str):
+    """Return a LangChain chat model for a specific AI model by UUID; falls back to active."""
+    result = await db.execute(
+        select(AiModel)
+        .options(selectinload(AiModel.provider_rel))
+        .where(AiModel.id == model_id)
+    )
+    model = result.scalar_one_or_none()
+    if model is None:
+        return await get_active_llm(db)
+    provider_key = model.provider_rel.api_key if model.provider_rel else None
+    return build_llm(model, provider_api_key=provider_key)
 
 
 def _default_llm():
@@ -26,11 +46,12 @@ def _default_llm():
     )
 
 
-def build_llm(model: AiModel):
+def build_llm(model: AiModel, provider_api_key: str | None = None):
     provider = (model.provider or "").lower().strip()
     model_id  = model.model_id
     base_url  = model.base_url
-    api_key   = model.api_key
+    # Model's own key takes priority; fall back to the linked provider's key
+    api_key   = model.api_key or provider_api_key
 
     if provider == "anthropic":
         from langchain_anthropic import ChatAnthropic
@@ -45,32 +66,43 @@ def build_llm(model: AiModel):
     _OLLAMA_BASE = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
     _DEFAULTS: dict[str, dict] = {
-        "openai":      {},
-        "groq":        {"base_url": "https://api.groq.com/openai/v1"},
-        "together ai": {"base_url": "https://api.together.xyz/v1"},
-        "mistral":     {"base_url": "https://api.mistral.ai/v1"},
-        "cohere":      {"base_url": "https://api.cohere.ai/compatibility/v1"},
-        "xai":         {"base_url": "https://api.x.ai/v1"},
-        "ollama":      {"base_url": f"{_OLLAMA_BASE}/v1", "api_key": "ollama"},
-        "lm studio":   {"base_url": "http://localhost:1234/v1",  "api_key": "lm-studio"},
-        "localai":     {"base_url": "http://localhost:8080/v1",  "api_key": "localai"},
-        "other":       {},
+        "openai":        {},
+        "groq":          {"base_url": "https://api.groq.com/openai/v1"},
+        "openrouter":    {"base_url": "https://openrouter.ai/api/v1"},
+        "mistral":       {"base_url": "https://api.mistral.ai/v1"},
+        "xai":           {"base_url": "https://api.x.ai/v1"},
+        "together ai":   {"base_url": "https://api.together.xyz/v1"},
+        "fireworks ai":  {"base_url": "https://api.fireworks.ai/inference/v1"},
+        "deepseek":      {"base_url": "https://api.deepseek.com/v1"},
+        "cerebras":      {"base_url": "https://api.cerebras.ai/v1"},
+        "nvidia nim":    {"base_url": "https://integrate.api.nvidia.com/v1"},
+        "scaleway":      {"base_url": "https://api.scaleway.ai/v1"},
+        "github models": {"base_url": "https://models.inference.ai.azure.com"},
+        "cohere":        {"base_url": "https://api.cohere.ai/compatibility/v1"},
+        "ollama":        {"base_url": f"{_OLLAMA_BASE}/v1", "api_key": "ollama"},
+        "lm studio":     {"base_url": "http://localhost:1234/v1", "api_key": "lm-studio"},
+        "localai":       {"base_url": "http://localhost:8080/v1", "api_key": "localai"},
+        "other":         {},
     }
     defaults = _DEFAULTS.get(provider, {})
 
     effective_url = base_url or defaults.get("base_url")
     effective_key = api_key  or defaults.get("api_key")
 
-    # Ensure OpenAI-compat providers have /v1 suffix
+    # Ensure OpenAI-compat local providers have /v1 suffix
     if effective_url and provider in ("ollama", "lm studio", "localai"):
         effective_url = effective_url.rstrip("/")
         if not effective_url.endswith("/v1"):
             effective_url += "/v1"
 
-    kwargs = {"model": model_id, "temperature": 0}
+    if not effective_key:
+        raise ValueError(
+            f"No API key configured for '{model.provider}'. "
+            "Add one via Admin → AI → Providers."
+        )
+
+    kwargs = {"model": model_id, "temperature": 0, "openai_api_key": effective_key}
     if effective_url:
         kwargs["base_url"] = effective_url
-    if effective_key:
-        kwargs["openai_api_key"] = effective_key
 
     return ChatOpenAI(**kwargs)

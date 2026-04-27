@@ -1,26 +1,40 @@
 "use client";
 
-import { useRef, useState, useEffect, Suspense } from "react";
+import { useRef, useState, useEffect, useReducer, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import {
   BookOpen, Upload, Trash2, Search, RefreshCw,
   FileText, AlertCircle, CheckCircle2, Loader2,
   Plus, Pencil, Check, X, Eye, EyeOff, Cpu, KeyRound, Download,
-  Globe, ExternalLink,
+  Globe, ExternalLink, Sparkles, HardDrive, Database,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { api, type BusinessUnit, type Document, type SearchResult, type McpServer, type AiModel } from "@/lib/api";
+import { api, type BusinessUnit, type Document, type SearchResult, type McpServer, type AiModel, type ApiProvider, type CatalogItem } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useBranding } from "@/components/shared/BrandingProvider";
+import { CatalogSourcesTab } from "@/components/admin/CatalogSourcesTab";
+import { MembersTab } from "@/components/admin/MembersTab";
+import { RolesTab } from "@/components/admin/RolesTab";
+import { AuditLogTab } from "@/components/admin/AuditLogTab";
+import { SessionsTab } from "@/components/admin/SessionsTab";
+import { SsoTab } from "@/components/admin/SsoTab";
+import { OrgSettingsTab } from "@/components/admin/OrgSettingsTab";
 
 const TABS = [
   { id: "ai",        label: "AI" },
   { id: "mcp",       label: "MCP Servers" },
   { id: "knowledge", label: "Knowledge Sources" },
+  { id: "catalog",   label: "Catalog Sources" },
   { id: "branding",  label: "Branding" },
   { id: "settings",  label: "Settings" },
+  { id: "org",       label: "Organization" },
+  { id: "members",   label: "Members" },
+  { id: "roles",     label: "Roles & Permissions" },
+  { id: "sso",       label: "SSO" },
+  { id: "audit",     label: "Audit Log" },
+  { id: "sessions",  label: "Sessions" },
 ];
 
 export default function AdminPage() {
@@ -64,12 +78,19 @@ function AdminPageInner() {
         </div>
 
         {/* Tab content */}
-        <main className="flex-1 overflow-y-auto p-6">
-          {activeTab === "knowledge" && <KnowledgeSourcesTab />}
-          {activeTab === "mcp"       && <McpServersTab />}
-          {activeTab === "ai"        && <AiModelsTab />}
-          {activeTab === "branding"  && <BrandingTab />}
-          {activeTab === "settings"  && <SettingsTab />}
+        <main className="flex-1 overflow-y-auto">
+          {activeTab === "knowledge" && <div className="p-6"><KnowledgeSourcesTab /></div>}
+          {activeTab === "mcp"       && <div className="p-6"><McpServersTab /></div>}
+          {activeTab === "ai"        && <div className="p-6"><AiModelsTab /></div>}
+          {activeTab === "catalog"   && <div className="p-6"><CatalogSourcesTab /></div>}
+          {activeTab === "branding"  && <div className="p-6"><BrandingTab /></div>}
+          {activeTab === "settings"  && <div className="p-6"><SettingsTab /></div>}
+          {activeTab === "org"       && <OrgSettingsTab />}
+          {activeTab === "members"   && <MembersTab />}
+          {activeTab === "roles"     && <RolesTab />}
+          {activeTab === "sso"       && <SsoTab />}
+          {activeTab === "audit"     && <AuditLogTab />}
+          {activeTab === "sessions"  && <SessionsTab />}
         </main>
       </div>
     </div>
@@ -280,10 +301,159 @@ function KnowledgeSourcesTab() {
 }
 
 const LOCAL_PROVIDERS = ["Ollama", "LM Studio", "LocalAI", "Other"];
-const API_PROVIDERS   = ["OpenAI", "Anthropic", "xAI", "Groq", "Together AI", "Mistral", "Cohere", "Custom"];
+const API_PROVIDERS   = ["OpenAI", "Anthropic", "xAI", "Groq", "OpenRouter", "Mistral", "Fireworks AI", "DeepSeek", "Cerebras", "NVIDIA NIM", "Scaleway", "GitHub Models", "Together AI", "Cohere", "Custom"];
 const FETCHABLE_PROVIDERS = new Set(
   [...LOCAL_PROVIDERS, ...API_PROVIDERS.filter((p) => p !== "Custom")].map((p) => p.toLowerCase()),
 );
+
+// ── Open-source model catalog ─────────────────────────────────────────────
+
+interface ModelCatalogItem {
+  id: string;
+  name: string;
+  family: string;
+  ollamaId: string;
+  params: string;
+  size: string;
+  description: string;
+  category: string;
+  tags: string[];
+  recommended?: boolean;
+}
+
+const MODEL_CATEGORIES = ["All", "Chat", "Coding", "Reasoning", "Vision", "Embedding"];
+
+const MODEL_CATEGORY_STYLES: Record<string, string> = {
+  Chat:      "bg-violet/10 text-violet border-violet/20",
+  Coding:    "bg-emerald-400/10 text-emerald-400 border-emerald-400/20",
+  Reasoning: "bg-amber-400/10 text-amber-400 border-amber-400/20",
+  Vision:    "bg-cyan/10 text-cyan border-cyan/20",
+  Embedding: "bg-white/5 text-text-2 border-white/10",
+};
+
+const MODEL_CATALOG: ModelCatalogItem[] = [
+  {
+    id: "llama32-1b", name: "Llama 3.2 1B", family: "Meta",
+    ollamaId: "llama3.2:1b", params: "1B", size: "1.3 GB",
+    description: "Meta's smallest Llama — ultra-fast for classification, Q&A, and lightweight summarization. Ideal for edge or CPU-only setups.",
+    category: "Chat", tags: ["Fast", "Small"],
+  },
+  {
+    id: "llama32-3b", name: "Llama 3.2 3B", family: "Meta",
+    ollamaId: "llama3.2:3b", params: "3B", size: "2.0 GB",
+    description: "Best balance of speed and quality for everyday tasks. Runs comfortably on consumer GPUs and Apple Silicon.",
+    category: "Chat", tags: ["Fast", "Balanced"], recommended: true,
+  },
+  {
+    id: "llama31-8b", name: "Llama 3.1 8B", family: "Meta",
+    ollamaId: "llama3.1:8b", params: "8B", size: "4.7 GB",
+    description: "Meta's flagship efficient model. Strong reasoning, code, and conversation with 128k context support.",
+    category: "Chat", tags: ["Balanced"], recommended: true,
+  },
+  {
+    id: "llama31-70b", name: "Llama 3.1 70B", family: "Meta",
+    ollamaId: "llama3.1:70b", params: "70B", size: "40 GB",
+    description: "Near frontier-level quality for complex reasoning, long context, and enterprise workloads. Requires 48 GB+ VRAM.",
+    category: "Chat", tags: ["Large", "Powerful"],
+  },
+  {
+    id: "mistral-7b", name: "Mistral 7B", family: "Mistral AI",
+    ollamaId: "mistral:7b", params: "7B", size: "4.1 GB",
+    description: "Efficient and capable general-purpose model with excellent instruction following and coding ability.",
+    category: "Chat", tags: ["Balanced"],
+  },
+  {
+    id: "mixtral-8x7b", name: "Mixtral 8x7B", family: "Mistral AI",
+    ollamaId: "mixtral:8x7b", params: "47B (MoE)", size: "26 GB",
+    description: "Mixture-of-experts model — activates only 13B params per token, delivering high quality at efficient inference.",
+    category: "Chat", tags: ["Large", "MoE"],
+  },
+  {
+    id: "qwen25-7b", name: "Qwen 2.5 7B", family: "Alibaba",
+    ollamaId: "qwen2.5:7b", params: "7B", size: "4.4 GB",
+    description: "Strong multilingual model excelling at math, coding, and structured reasoning across 29+ languages.",
+    category: "Chat", tags: ["Multilingual", "Balanced"],
+  },
+  {
+    id: "qwen25-14b", name: "Qwen 2.5 14B", family: "Alibaba",
+    ollamaId: "qwen2.5:14b", params: "14B", size: "9.0 GB",
+    description: "Larger Qwen with improved reasoning across all domains. Great multilingual coverage.",
+    category: "Chat", tags: ["Large", "Multilingual"],
+  },
+  {
+    id: "gemma2-2b", name: "Gemma 2 2B", family: "Google",
+    ollamaId: "gemma2:2b", params: "2B", size: "1.6 GB",
+    description: "Google's lightweight model for edge deployment. Surprisingly capable for its tiny footprint.",
+    category: "Chat", tags: ["Fast", "Small"],
+  },
+  {
+    id: "gemma2-9b", name: "Gemma 2 9B", family: "Google",
+    ollamaId: "gemma2:9b", params: "9B", size: "5.5 GB",
+    description: "Google's balanced open model with strong performance across language tasks and instruction following.",
+    category: "Chat", tags: ["Balanced"],
+  },
+  {
+    id: "phi35-mini", name: "Phi 3.5 Mini", family: "Microsoft",
+    ollamaId: "phi3.5:3.8b", params: "3.8B", size: "2.2 GB",
+    description: "Microsoft's compact reasoning specialist. Exceptional math and logic performance given its tiny footprint.",
+    category: "Reasoning", tags: ["Fast", "Small"],
+  },
+  {
+    id: "phi4-14b", name: "Phi 4", family: "Microsoft",
+    ollamaId: "phi4:14b", params: "14B", size: "9.1 GB",
+    description: "Microsoft's best open reasoning model. Tops benchmarks in STEM, math, and complex problem-solving.",
+    category: "Reasoning", tags: ["Large"], recommended: true,
+  },
+  {
+    id: "deepseek-r1-7b", name: "DeepSeek R1 7B", family: "DeepSeek",
+    ollamaId: "deepseek-r1:7b", params: "7B", size: "4.7 GB",
+    description: "Reasoning model with visible chain-of-thought. Strong at math, logic, and multi-step analytical tasks.",
+    category: "Reasoning", tags: ["Balanced"],
+  },
+  {
+    id: "deepseek-r1-14b", name: "DeepSeek R1 14B", family: "DeepSeek",
+    ollamaId: "deepseek-r1:14b", params: "14B", size: "9.0 GB",
+    description: "Larger reasoning model delivering frontier-quality chain-of-thought for complex problems.",
+    category: "Reasoning", tags: ["Large"], recommended: true,
+  },
+  {
+    id: "codellama-7b", name: "Code Llama 7B", family: "Meta",
+    ollamaId: "codellama:7b", params: "7B", size: "3.8 GB",
+    description: "Specialized code model fine-tuned from Llama. Supports Python, JS, Go, Rust, and 10+ languages.",
+    category: "Coding", tags: ["Fast"],
+  },
+  {
+    id: "qwen25-coder-7b", name: "Qwen 2.5 Coder 7B", family: "Alibaba",
+    ollamaId: "qwen2.5-coder:7b", params: "7B", size: "4.7 GB",
+    description: "State-of-the-art open code model. Tops coding benchmarks in completion, debugging, and review.",
+    category: "Coding", tags: ["Balanced"], recommended: true,
+  },
+  {
+    id: "deepseek-coder-67b", name: "DeepSeek Coder 6.7B", family: "DeepSeek",
+    ollamaId: "deepseek-coder:6.7b", params: "6.7B", size: "3.8 GB",
+    description: "Fast code specialist trained on 2T tokens. Excellent at completion and fill-in-the-middle tasks.",
+    category: "Coding", tags: ["Fast"],
+  },
+  {
+    id: "llava-7b", name: "LLaVA 7B", family: "Liu et al.",
+    ollamaId: "llava:7b", params: "7B", size: "4.5 GB",
+    description: "Visual language model that understands images alongside text. Great for document and chart analysis.",
+    category: "Vision", tags: ["Balanced"],
+  },
+  {
+    id: "llava-13b", name: "LLaVA 13B", family: "Liu et al.",
+    ollamaId: "llava:13b", params: "13B", size: "8.0 GB",
+    description: "Larger vision model with improved accuracy for complex image understanding and OCR tasks.",
+    category: "Vision", tags: ["Large"],
+  },
+  {
+    id: "nomic-embed-text", name: "Nomic Embed Text", family: "Nomic AI",
+    ollamaId: "nomic-embed-text", params: "137M", size: "274 MB",
+    description: "High-quality text embedding model for semantic search and RAG pipelines. Runs on CPU, sub-second inference.",
+    category: "Embedding", tags: ["Fast", "Small"],
+  },
+];
+
 
 function AiModelForm({
   values, onChange, showKey, onToggleKey, error, onSubmit, onCancel, saving, submitLabel,
@@ -590,7 +760,7 @@ function AiModelForm({
       {/* API Key */}
       {!isLocal && (
         <div className="space-y-1">
-          <label className="text-xs text-text-3">API Key</label>
+          <label className="text-xs text-text-3">API Key <span className="text-rose-400">*</span></label>
           <div className="relative">
             <input
               type={showKey ? "text" : "password"}
@@ -617,7 +787,7 @@ function AiModelForm({
       {error && <p className="text-xs text-rose-400">{error}</p>}
 
       <div className="flex gap-2">
-        <button onClick={onSubmit} disabled={saving || !values.name.trim() || !values.model_id.trim()}
+        <button onClick={onSubmit} disabled={saving || !values.name.trim() || !values.model_id.trim() || (!isLocal && !values.api_key.trim())}
           className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-violet/20 hover:bg-violet/35 text-violet text-sm font-medium disabled:opacity-40 transition-colors">
           {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
           {submitLabel}
@@ -630,198 +800,371 @@ function AiModelForm({
   );
 }
 
-const EMPTY_FORM = { name: "", type: "api", provider: "", model_id: "", base_url: "", api_key: "", description: "" };
+// ── API provider catalog used by the Connect form ──────────────────────────
 
-function AiModelsTab() {
-  const { data: models = [], mutate, isLoading } = useSWR("ai-models", () => api.aiModels.list());
+const CONNECT_PROVIDER_CATALOG = [
+  { name: "anthropic",     displayName: "Anthropic",    icon: "🟠", placeholder: "sk-ant-..."  },
+  { name: "openai",        displayName: "OpenAI",       icon: "🔮", placeholder: "sk-..."       },
+  { name: "groq",          displayName: "Groq",         icon: "⚡", placeholder: "gsk_..."     },
+  { name: "xai",           displayName: "xAI (Grok)",   icon: "✕",  placeholder: "xai-..."     },
+  { name: "openrouter",    displayName: "OpenRouter",   icon: "🔀", placeholder: "sk-or-..."   },
+  { name: "mistral",       displayName: "Mistral AI",   icon: "🌊", placeholder: "..."          },
+  { name: "together ai",   displayName: "Together AI",  icon: "🤝", placeholder: "..."          },
+  { name: "fireworks ai",  displayName: "Fireworks AI", icon: "🎆", placeholder: "fw_..."      },
+  { name: "deepseek",      displayName: "DeepSeek",     icon: "🔍", placeholder: "sk-..."       },
+  { name: "cerebras",      displayName: "Cerebras",     icon: "🧠", placeholder: "csk-..."     },
+  { name: "nvidia nim",    displayName: "NVIDIA NIM",   icon: "🟢", placeholder: "nvapi-..."   },
+  { name: "scaleway",      displayName: "Scaleway",     icon: "🇪🇺", placeholder: "..."         },
+  { name: "github models", displayName: "GitHub Models",icon: "🐙", placeholder: "ghp_..."     },
+  { name: "cohere",        displayName: "Cohere",       icon: "🎯", placeholder: "..."          },
+];
 
-  const local = models.filter((m) => m.type === "local");
-  const api_  = models.filter((m) => m.type === "api");
+const PROVIDER_ICONS: Record<string, string> = Object.fromEntries(
+  CONNECT_PROVIDER_CATALOG.map((p) => [p.name, p.icon])
+);
 
-  // ── Create ────────────────────────────────────────────────────
-  const [creating, setCreating] = useState(false);
-  const [form, setForm]         = useState({ ...EMPTY_FORM });
-  const [showKey, setShowKey]   = useState(false);
-  const [saving, setSaving]     = useState(false);
-  const [createError, setCreateError] = useState("");
+function ProviderRow({
+  provider, onSynced, onDeleted,
+}: {
+  provider: ApiProvider;
+  onSynced: () => void;
+  onDeleted: () => void;
+}) {
+  const [syncing,  setSyncing]  = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
-  const setField = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
-
-  const handleCreate = async () => {
-    setSaving(true); setCreateError("");
-    try {
-      await api.aiModels.create({
-        name: form.name.trim(), type: form.type, provider: form.provider,
-        model_id: form.model_id.trim(),
-        base_url: form.base_url.trim() || undefined,
-        api_key: form.api_key.trim() || undefined,
-        description: form.description.trim() || undefined,
-      });
-      mutate(); setCreating(false); setForm({ ...EMPTY_FORM }); setShowKey(false);
-    } catch (e: unknown) {
-      setCreateError(e instanceof Error ? e.message : "Failed to add model");
-    } finally { setSaving(false); }
-  };
-
-  // ── Edit ──────────────────────────────────────────────────────
-  const [editingId, setEditingId]   = useState<string | null>(null);
-  const [editForm, setEditForm]     = useState({ ...EMPTY_FORM });
-  const [showEditKey, setShowEditKey] = useState(false);
-  const [editSaving, setEditSaving] = useState(false);
-  const [editError, setEditError]   = useState("");
-
-  const setEditField = (k: string, v: string) => setEditForm((f) => ({ ...f, [k]: v }));
-
-  const startEdit = (m: AiModel) => {
-    setEditingId(m.id);
-    setEditForm({ name: m.name, type: m.type, provider: m.provider, model_id: m.model_id,
-      base_url: m.base_url ?? "", api_key: "", description: m.description ?? "" });
-    setEditError(""); setShowEditKey(false);
-  };
-
-  const handleUpdate = async () => {
-    if (!editingId) return;
-    setEditSaving(true); setEditError("");
-    try {
-      const patch: Record<string, unknown> = {
-        name: editForm.name.trim(), type: editForm.type, provider: editForm.provider,
-        model_id: editForm.model_id.trim(),
-        base_url: editForm.base_url.trim() || undefined,
-        description: editForm.description.trim() || undefined,
-      };
-      if (editForm.api_key.trim()) patch.api_key = editForm.api_key.trim();
-      await api.aiModels.update(editingId, patch);
-      mutate(); setEditingId(null);
-    } catch (e: unknown) {
-      setEditError(e instanceof Error ? e.message : "Failed to update model");
-    } finally { setEditSaving(false); }
-  };
-
-  // ── Delete / toggle ───────────────────────────────────────────
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  const handleDelete = async (id: string) => {
-    setDeletingId(id);
-    try { await api.aiModels.delete(id); mutate(); }
+  const handleSync = async () => {
+    setSyncing(true);
+    try { await api.apiProviders.sync(provider.id); onSynced(); }
     catch (e) { console.error(e); }
-    finally { setDeletingId(null); }
+    finally { setSyncing(false); }
   };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try { await api.apiProviders.delete(provider.id); onDeleted(); }
+    catch (e) { console.error(e); }
+    finally { setDeleting(false); }
+  };
+
+  return (
+    <motion.div layout initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 8 }}
+      className="glass rounded-xl px-4 py-3 flex items-center gap-4">
+      <span className="text-xl shrink-0">{PROVIDER_ICONS[provider.name] ?? "🔌"}</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-sm font-medium text-text-1">{provider.display_name}</p>
+          <span className={cn(
+            "text-xs px-1.5 py-0.5 rounded border",
+            provider.status === "connected"
+              ? "bg-emerald/10 text-emerald border-emerald/20"
+              : provider.status === "invalid"
+              ? "bg-rose-400/10 text-rose-400 border-rose-400/20"
+              : "bg-amber-400/10 text-amber-400 border-amber-400/20",
+          )}>
+            {provider.status === "connected" ? "Connected" : provider.status === "invalid" ? "Invalid key" : "Error"}
+          </span>
+          <span className="text-xs text-text-3">
+            {provider.model_count} model{provider.model_count !== 1 ? "s" : ""}
+          </span>
+        </div>
+        {provider.last_synced_at && (
+          <p className="text-xs text-text-3 mt-0.5">
+            Last synced {new Date(provider.last_synced_at).toLocaleDateString()}
+          </p>
+        )}
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        <button onClick={handleSync} disabled={syncing} title="Sync models"
+          className="p-1.5 rounded-lg text-text-3 hover:text-violet hover:bg-surface-2 disabled:opacity-40 transition-colors">
+          {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+        </button>
+        <button onClick={handleDelete} disabled={deleting} title="Disconnect"
+          className="p-1.5 rounded-lg text-text-3 hover:text-rose-400 disabled:opacity-40 transition-colors">
+          {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+function ProvidersView({
+  providers, mutate, mutateModels,
+}: {
+  providers: ApiProvider[];
+  mutate: () => void;
+  mutateModels: () => void;
+}) {
+  const [selectedProvider, setSelectedProvider] = useState("");
+  const [apiKey,           setApiKey]           = useState("");
+  const [showKey,          setShowKey]          = useState(false);
+  const [connecting,       setConnecting]       = useState(false);
+  const [connectError,     setConnectError]     = useState("");
+  const [connectSuccess,   setConnectSuccess]   = useState("");
+
+  const placeholder = CONNECT_PROVIDER_CATALOG.find((p) => p.name === selectedProvider)?.placeholder ?? "API key…";
+
+  const handleConnect = async () => {
+    if (!selectedProvider || !apiKey.trim()) return;
+    setConnecting(true); setConnectError(""); setConnectSuccess("");
+    try {
+      const result = await api.apiProviders.connect({ name: selectedProvider, api_key: apiKey.trim() });
+      mutate(); mutateModels();
+      setConnectSuccess(`${result.display_name} connected — ${result.model_count} models added`);
+      setApiKey(""); setSelectedProvider("");
+    } catch (e: unknown) {
+      let msg = e instanceof Error ? e.message : "Connection failed";
+      const jsonMatch = msg.match(/: (\{.*\})/);
+      if (jsonMatch) { try { const p = JSON.parse(jsonMatch[1]); if (p.detail) msg = p.detail; } catch { /* keep */ } }
+      setConnectError(msg);
+    } finally { setConnecting(false); }
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Connect form */}
+      <div className="glass rounded-2xl p-5 space-y-4">
+        <p className="text-xs font-medium text-text-2 uppercase tracking-widest">Connect a Provider</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-xs text-text-3">Provider</label>
+            <select
+              value={selectedProvider}
+              onChange={(e) => { setSelectedProvider(e.target.value); setConnectError(""); setConnectSuccess(""); }}
+              className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text-1 outline-none focus:border-violet"
+            >
+              <option value="">Select provider…</option>
+              {CONNECT_PROVIDER_CATALOG.map((p) => (
+                <option key={p.name} value={p.name}>{p.icon} {p.displayName}</option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-text-3">API Key</label>
+            <div className="relative">
+              <input
+                type={showKey ? "text" : "password"}
+                value={apiKey}
+                onChange={(e) => { setApiKey(e.target.value); setConnectError(""); setConnectSuccess(""); }}
+                onKeyDown={(e) => e.key === "Enter" && handleConnect()}
+                placeholder={placeholder}
+                className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2 pr-10 text-sm text-text-1 placeholder:text-text-3 outline-none focus:border-violet font-mono"
+              />
+              <button onClick={() => setShowKey((v) => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-3 hover:text-text-2 transition-colors">
+                {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+          </div>
+        </div>
+        {connectError   && <p className="text-xs text-rose-400">{connectError}</p>}
+        {connectSuccess && <p className="text-xs text-emerald-400 flex items-center gap-1"><Check className="w-3 h-3" />{connectSuccess}</p>}
+        <button
+          onClick={handleConnect}
+          disabled={!selectedProvider || !apiKey.trim() || connecting}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-violet/20 hover:bg-violet/35 text-violet text-sm font-medium disabled:opacity-40 transition-colors"
+        >
+          {connecting
+            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Connecting…</>
+            : <><Check className="w-3.5 h-3.5" /> Connect</>}
+        </button>
+      </div>
+
+      {/* Connected list */}
+      {providers.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-text-2 uppercase tracking-widest px-1">Connected</p>
+          <AnimatePresence>
+            {providers.map((p) => (
+              <ProviderRow
+                key={p.id}
+                provider={p}
+                onSynced={() => { mutate(); mutateModels(); }}
+                onDeleted={() => { mutate(); mutateModels(); }}
+              />
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {providers.length === 0 && !connecting && (
+        <EmptyState message="No API providers connected yet. Select a provider above and enter your API key to connect." />
+      )}
+    </div>
+  );
+}
+
+function ModelRow({ model, onToggle }: { model: AiModel; onToggle: () => void }) {
+  return (
+    <motion.div layout initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 8 }}
+      className="glass rounded-xl px-4 py-3 flex items-center gap-4">
+      <button onClick={onToggle} title={model.enabled ? "Disable" : "Enable"}
+        className={cn("relative w-9 h-5 rounded-full transition-colors shrink-0 mt-0.5",
+          model.enabled ? "bg-emerald/60" : "bg-white/10")}>
+        <span className={cn("absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200",
+          model.enabled ? "translate-x-4" : "translate-x-0")} />
+      </button>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-sm font-medium text-text-1">{model.name}</p>
+          <span className="text-xs text-text-3 capitalize">{model.provider}</span>
+          {model.context_window && (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-text-3">
+              {model.context_window >= 1000
+                ? `${(model.context_window / 1000).toFixed(model.context_window % 1000 === 0 ? 0 : 0)}k`
+                : model.context_window}{" "}ctx
+            </span>
+          )}
+          {model.capabilities?.map((cap) => (
+            <span key={cap} className="text-xs px-1.5 py-0.5 rounded bg-violet/10 text-violet border border-violet/20 capitalize">
+              {cap}
+            </span>
+          ))}
+        </div>
+        <p className="text-xs text-text-3 font-mono mt-0.5">{model.model_id}</p>
+      </div>
+    </motion.div>
+  );
+}
+
+function ModelsView({ models, mutate, loading }: { models: AiModel[]; mutate: () => void; loading: boolean }) {
+  const [filterProvider, setFilterProvider] = useState("all");
+
+  const providerNames = [...new Set(models.map((m) => m.provider))].sort();
+  const filtered = filterProvider === "all" ? models : models.filter((m) => m.provider === filterProvider);
+  const apiModels   = filtered.filter((m) => m.type === "api");
+  const localModels = filtered.filter((m) => m.type === "local");
 
   const handleToggle = async (m: AiModel) => {
     try { await api.aiModels.update(m.id, { enabled: !m.enabled }); mutate(); }
     catch (e) { console.error(e); }
   };
 
-  const renderModelRow = (m: AiModel) => (
-    <motion.div key={m.id} layout initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 8 }}
-      className="glass rounded-xl px-4 py-3">
-      {editingId === m.id ? (
-        <AiModelForm values={editForm} onChange={setEditField} showKey={showEditKey}
-          onToggleKey={() => setShowEditKey((v) => !v)} error={editError}
-          onSubmit={handleUpdate} onCancel={() => setEditingId(null)}
-          saving={editSaving} submitLabel="Save" />
-      ) : (
-        <div className="flex items-start gap-4">
-          <button onClick={() => handleToggle(m)} title={m.enabled ? "Disable" : "Enable"}
-            className={cn("relative mt-0.5 w-9 h-5 rounded-full transition-colors shrink-0",
-              m.enabled ? "bg-emerald/60" : "bg-white/10")}>
-            <span className={cn("absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform",
-              m.enabled ? "translate-x-4" : "translate-x-0.5")} />
-          </button>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-sm font-medium text-text-1">{m.name}</p>
-              <span className={cn("text-xs px-1.5 py-0.5 rounded border font-mono",
-                m.type === "local" ? "bg-cyan/10 text-cyan border-cyan/20" : "bg-violet/10 text-violet border-violet/20")}>
-                {m.type === "local" ? "local" : "api"}
-              </span>
-              <span className="text-xs text-text-3">{m.provider}</span>
-              {m.api_key_set && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-emerald/10 text-emerald border border-emerald/20">key set</span>
-              )}
-            </div>
-            <p className="text-xs text-text-3 font-mono mt-0.5">{m.model_id}</p>
-            {m.base_url && <p className="text-xs text-text-3 font-mono mt-0.5 truncate">{m.base_url}</p>}
-            {m.description && <p className="text-xs text-text-3 mt-0.5">{m.description}</p>}
-          </div>
-          <div className="flex items-center gap-1 shrink-0">
-            <button onClick={() => startEdit(m)} title="Edit"
-              className="p-1.5 rounded-lg text-text-3 hover:text-text-2 hover:bg-surface-2 transition-colors">
-              <Pencil className="w-3.5 h-3.5" />
-            </button>
-            <button onClick={() => handleDelete(m.id)} disabled={deletingId === m.id} title="Delete"
-              className="p-1.5 rounded-lg text-text-3 hover:text-rose-400 disabled:opacity-40 transition-colors">
-              {deletingId === m.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-            </button>
-          </div>
-        </div>
-      )}
-    </motion.div>
+  if (loading) return (
+    <div className="flex items-center gap-2 text-text-3 text-sm">
+      <RefreshCw className="w-4 h-4 animate-spin" />Loading…
+    </div>
+  );
+
+  if (models.length === 0) return (
+    <EmptyState message="No models yet. Connect an API provider in the Providers tab, or download a local model from the Open Source tab." />
   );
 
   return (
-    <div className="max-w-4xl space-y-8">
+    <div className="space-y-5">
+      {/* Provider filter */}
+      <div className="flex gap-2 flex-wrap">
+        <button onClick={() => setFilterProvider("all")}
+          className={cn("px-3 py-1 rounded-full text-xs font-medium border transition-colors",
+            filterProvider === "all" ? "bg-violet/20 border-violet/40 text-violet" : "border-border text-text-3 hover:text-text-2")}>
+          All ({models.length})
+        </button>
+        {providerNames.map((p) => (
+          <button key={p} onClick={() => setFilterProvider(p)}
+            className={cn("px-3 py-1 rounded-full text-xs font-medium border transition-colors capitalize",
+              filterProvider === p ? "bg-violet/20 border-violet/40 text-violet" : "border-border text-text-3 hover:text-text-2")}>
+            {p} ({models.filter((m) => m.provider === p).length})
+          </button>
+        ))}
+      </div>
+
+      {apiModels.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 px-1">
+            <KeyRound className="w-3.5 h-3.5 text-violet" />
+            <p className="text-xs font-medium text-text-2 uppercase tracking-widest">API Models</p>
+          </div>
+          <AnimatePresence>
+            {apiModels.map((m) => <ModelRow key={m.id} model={m} onToggle={() => handleToggle(m)} />)}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {localModels.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 px-1">
+            <Cpu className="w-3.5 h-3.5 text-cyan" />
+            <p className="text-xs font-medium text-text-2 uppercase tracking-widest">Local / Open Source</p>
+          </div>
+          <AnimatePresence>
+            {localModels.map((m) => <ModelRow key={m.id} model={m} onToggle={() => handleToggle(m)} />)}
+          </AnimatePresence>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AiModelsTab() {
+  const { data: models = [], mutate: mutateModels, isLoading } = useSWR("ai-models", () => api.aiModels.list());
+  const { data: providers = [], mutate: mutateProviders } = useSWR("api-providers", () => api.apiProviders.list());
+
+  const [aiView, setAiView] = useState<"library" | "providers" | "models" | "hf">("providers");
+
+  return (
+    <div className="max-w-4xl space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold text-text-1">AI Models</h2>
           <p className="text-xs text-text-3 mt-0.5">
-            {models.length} model{models.length !== 1 ? "s" : ""} configured
+            {providers.length} provider{providers.length !== 1 ? "s" : ""} connected · {models.length} model{models.length !== 1 ? "s" : ""} available
           </p>
         </div>
-        {!creating && (
-          <button onClick={() => setCreating(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet/20 hover:bg-violet/35 text-violet text-sm font-medium transition-colors">
-            <Plus className="w-3.5 h-3.5" /> Add model
+        <div className="flex items-center bg-surface-2 rounded-lg p-0.5 border border-border">
+          <button
+            onClick={() => setAiView("library")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+              aiView === "library" ? "bg-cyan/20 text-cyan" : "text-text-3 hover:text-text-2",
+            )}
+          >
+            <Cpu className="w-3 h-3" /> Open Source
           </button>
-        )}
+          <button
+            onClick={() => setAiView("providers")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+              aiView === "providers" ? "bg-violet/20 text-violet" : "text-text-3 hover:text-text-2",
+            )}
+          >
+            <KeyRound className="w-3 h-3" /> Providers
+            {providers.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-white/10 text-text-2 text-[10px] font-mono leading-none">
+                {providers.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setAiView("models")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+              aiView === "models" ? "bg-white/10 text-text-1" : "text-text-3 hover:text-text-2",
+            )}
+          >
+            <Sparkles className="w-3 h-3" /> Models
+            {models.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-white/10 text-text-2 text-[10px] font-mono leading-none">
+                {models.length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setAiView("hf")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+              aiView === "hf" ? "bg-amber-400/20 text-amber-400" : "text-text-3 hover:text-text-2",
+            )}
+          >
+            <Globe className="w-3 h-3" /> HF Catalog
+          </button>
+        </div>
       </div>
 
-      {/* Create form */}
-      <AnimatePresence>
-        {creating && (
-          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
-            className="glass rounded-2xl p-5 space-y-4">
-            <p className="text-xs font-medium text-text-2 uppercase tracking-widest">Add Model</p>
-            <AiModelForm values={form} onChange={setField} showKey={showKey}
-              onToggleKey={() => setShowKey((v) => !v)} error={createError}
-              onSubmit={handleCreate} onCancel={() => { setCreating(false); setForm({ ...EMPTY_FORM }); setCreateError(""); }}
-              saving={saving} submitLabel="Add" />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {isLoading ? (
-        <div className="flex items-center gap-2 text-text-3 text-sm">
-          <RefreshCw className="w-4 h-4 animate-spin" />Loading…
-        </div>
-      ) : models.length === 0 ? (
-        <EmptyState message="No AI models configured. Add an API key or a local model endpoint to get started." />
-      ) : (
-        <div className="space-y-6">
-          {/* Local / open-source */}
-          {local.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 px-1">
-                <Cpu className="w-3.5 h-3.5 text-cyan" />
-                <p className="text-xs font-medium text-text-2 uppercase tracking-widest">Local / Open Source</p>
-              </div>
-              <AnimatePresence>{local.map((m) => renderModelRow(m))}</AnimatePresence>
-            </div>
-          )}
-
-          {/* API-key models */}
-          {api_.length > 0 && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 px-1">
-                <KeyRound className="w-3.5 h-3.5 text-violet" />
-                <p className="text-xs font-medium text-text-2 uppercase tracking-widest">API Key Models</p>
-              </div>
-              <AnimatePresence>{api_.map((m) => renderModelRow(m))}</AnimatePresence>
-            </div>
-          )}
-        </div>
-      )}
+      {aiView === "library"   && <OllamaLibraryView models={models} mutate={mutateModels} />}
+      {aiView === "providers" && <ProvidersView providers={providers} mutate={mutateProviders} mutateModels={mutateModels} />}
+      {aiView === "models"    && <ModelsView models={models} mutate={mutateModels} loading={isLoading} />}
+      {aiView === "hf"        && <HFCatalogView models={models} mutate={mutateModels} />}
     </div>
   );
 }
@@ -1204,7 +1547,7 @@ function McpServersTab() {
   );
 
   // ── Sub-view & marketplace ────────────────────────────────────
-  const [mcpView, setMcpView] = useState<"marketplace" | "installed">("marketplace");
+  const [mcpView, setMcpView] = useState<"marketplace" | "installed" | "registry">("marketplace");
   const [categoryFilter, setCategoryFilter] = useState("All");
 
   const filteredCatalog = categoryFilter === "All"
@@ -1228,6 +1571,16 @@ function McpServersTab() {
     setNewUrl(item.defaultUrl);
     setNewTransport(item.transport);
     setNewDesc(item.description);
+    setCreateError("");
+    setCreating(true);
+    setMcpView("installed");
+  };
+
+  const addFromRegistry = (name: string, url: string, desc: string) => {
+    setNewName(name);
+    setNewUrl(url);
+    setNewTransport("streamable_http");
+    setNewDesc(desc);
     setCreateError("");
     setCreating(true);
     setMcpView("installed");
@@ -1360,6 +1713,15 @@ function McpServersTab() {
                 </span>
               )}
             </button>
+            <button
+              onClick={() => setMcpView("registry")}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+                mcpView === "registry" ? "bg-amber-400/20 text-amber-400" : "text-text-3 hover:text-text-2",
+              )}
+            >
+              <Database className="w-3 h-3" /> Live Registry
+            </button>
           </div>
           {/* Add button — installed view only */}
           {mcpView === "installed" && !creating && (
@@ -1373,6 +1735,11 @@ function McpServersTab() {
           )}
         </div>
       </div>
+
+      {/* ── Live Registry view ───────────────────────────────────────── */}
+      {mcpView === "registry" && (
+        <LiveMcpRegistryView servers={servers} onAdd={addFromRegistry} />
+      )}
 
       {/* ── Marketplace view ──────────────────────────────────────── */}
       {mcpView === "marketplace" && (
@@ -1551,8 +1918,8 @@ function McpServersTab() {
                           )}
                         >
                           <span className={cn(
-                            "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform",
-                            editEnabled ? "translate-x-4" : "translate-x-0.5",
+                            "absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200",
+                            editEnabled ? "translate-x-4" : "translate-x-0",
                           )} />
                         </button>
                         <span className="text-xs text-text-3">{editEnabled ? "Enabled" : "Disabled"}</span>
@@ -1583,8 +1950,8 @@ function McpServersTab() {
                         )}
                       >
                         <span className={cn(
-                          "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform",
-                          s.enabled ? "translate-x-4" : "translate-x-0.5",
+                          "absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200",
+                          s.enabled ? "translate-x-4" : "translate-x-0",
                         )} />
                       </button>
                       <div className="flex-1 min-w-0">
@@ -1814,6 +2181,670 @@ function CatalogCard({
         </button>
       </div>
     </motion.div>
+  );
+}
+
+// ── Open-source model library ─────────────────────────────────────────────
+
+function isModelInstalled(installedIds: string[], catalogId: string): boolean {
+  return installedIds.some((id) => id === catalogId || id === `${catalogId}:latest`);
+}
+
+// Module-level pull registry — survives component unmount/remount and navigation.
+type PullState = "idle" | "pulling" | "done" | "error";
+type PullEntry = { state: PullState; pct: number | null; status: string; error: string };
+
+const _pullRegistry = new Map<string, PullEntry>();
+const _pullListeners = new Set<() => void>();
+
+function _setPull(id: string, patch: Partial<PullEntry>) {
+  const cur = _pullRegistry.get(id) ?? { state: "idle" as PullState, pct: null, status: "", error: "" };
+  _pullRegistry.set(id, { ...cur, ...patch });
+  _pullListeners.forEach((fn) => fn());
+}
+
+function usePullState(modelId: string) {
+  const [, rerender] = useReducer((x: number) => x + 1, 0);
+  useEffect(() => {
+    _pullListeners.add(rerender);
+    return () => { _pullListeners.delete(rerender); };
+  }, []);
+  const entry = _pullRegistry.get(modelId) ?? { state: "idle" as PullState, pct: null, status: "", error: "" };
+  return {
+    ...entry,
+    set: (patch: Partial<PullEntry>) => _setPull(modelId, patch),
+    clear: () => { _pullRegistry.delete(modelId); _pullListeners.forEach((fn) => fn()); },
+  };
+}
+
+function ModelCatalogCard({
+  model, ollamaUrl, installedInOllama, configured, onRegistered,
+}: {
+  model: ModelCatalogItem;
+  ollamaUrl: string;
+  installedInOllama: boolean;
+  configured: boolean;
+  onRegistered: () => void;
+}) {
+  const pull = usePullState(model.ollamaId);
+  const [registering, setRegistering] = useState(false);
+
+  const autoRegister = async () => {
+    try {
+      await api.aiModels.create({
+        name: model.name, type: "local", provider: "Ollama",
+        model_id: model.ollamaId, base_url: ollamaUrl,
+        description: model.description, enabled: false,
+      });
+    } catch { /* model may already exist */ }
+    onRegistered();
+  };
+
+  const handleDownload = async () => {
+    if (!ollamaUrl) return;
+    pull.set({ state: "pulling", pct: null, status: "Starting…", error: "" });
+    await api.aiModels.pullOllama(
+      model.ollamaId, ollamaUrl,
+      (status, pct) => pull.set({ status, pct }),
+      async () => { await autoRegister(); pull.set({ state: "done" }); },
+      (err) => pull.set({ state: "error", error: err }),
+    );
+  };
+
+  const handleRegister = async () => {
+    setRegistering(true);
+    try {
+      await api.aiModels.create({
+        name: model.name, type: "local", provider: "Ollama",
+        model_id: model.ollamaId, base_url: ollamaUrl,
+        description: model.description, enabled: false,
+      });
+      pull.set({ state: "done" });
+      onRegistered();
+    } catch (e) {
+      pull.set({ error: e instanceof Error ? e.message : "Failed to register" });
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  const isReady = configured || pull.state === "done";
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -4 }}
+      className="glass rounded-2xl p-4 flex flex-col gap-3"
+    >
+      {/* Header */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-text-1">{model.name}</p>
+            {model.recommended && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet/15 text-violet border border-violet/25 font-medium">
+                Recommended
+              </span>
+            )}
+            {isReady && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-400/10 text-emerald-400 border border-emerald-400/20 font-medium">
+                Active
+              </span>
+            )}
+            {installedInOllama && !isReady && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-400/10 text-amber-400 border border-amber-400/20 font-medium">
+                Downloaded
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <span className={cn(
+              "text-[10px] px-1.5 py-0.5 rounded border font-medium",
+              MODEL_CATEGORY_STYLES[model.category] ?? "bg-white/5 text-text-2 border-white/10",
+            )}>
+              {model.category}
+            </span>
+            <span className="text-[10px] text-text-3">{model.family}</span>
+          </div>
+        </div>
+        <div className="text-right shrink-0">
+          <div className="flex items-center gap-1 justify-end text-text-2">
+            <HardDrive className="w-3 h-3 text-text-3" />
+            <span className="text-xs font-mono">{model.size}</span>
+          </div>
+          <p className="text-[10px] text-text-3 mt-0.5">{model.params} params</p>
+        </div>
+      </div>
+
+      {/* Description */}
+      <p className="text-xs text-text-3 leading-relaxed flex-1">{model.description}</p>
+
+      {/* Tags + model id */}
+      <div className="flex gap-1 flex-wrap">
+        {model.tags.map((tag) => (
+          <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-text-3">
+            {tag}
+          </span>
+        ))}
+        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-text-3 font-mono">
+          {model.ollamaId}
+        </span>
+      </div>
+
+      {/* Action area */}
+      <div className="pt-2 border-t border-border">
+        {pull.state === "pulling" && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-text-3 font-mono truncate">{pull.status || "Connecting…"}</p>
+              {pull.pct !== null && (
+                <span className="text-xs font-mono text-text-2 shrink-0 ml-2">{pull.pct}%</span>
+              )}
+            </div>
+            <div className="h-1.5 bg-surface-2 rounded-full overflow-hidden">
+              <motion.div
+                className="h-full bg-gradient-to-r from-violet to-cyan rounded-full"
+                animate={{ width: pull.pct !== null ? `${pull.pct}%` : "30%" }}
+                transition={{ duration: 0.3 }}
+                style={pull.pct === null ? { animation: "pulse 2s infinite" } : {}}
+              />
+            </div>
+            {pull.pct === null && (
+              <p className="text-[10px] text-text-3 animate-pulse">Waiting for Ollama…</p>
+            )}
+          </div>
+        )}
+
+        {pull.state === "done" && (
+          <div className="flex items-center gap-1.5 text-emerald-400 text-xs">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            Ready to use — model is now active
+          </div>
+        )}
+
+        {pull.state === "error" && (
+          <div className="space-y-1.5">
+            <p className="text-xs text-rose-400 line-clamp-2">{pull.error}</p>
+            <button
+              onClick={() => pull.set({ state: "idle", error: "" })}
+              className="text-xs text-violet hover:text-violet/80 transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {pull.state === "idle" && (
+          <div className="flex items-center justify-between">
+            {isReady ? (
+              <div className="flex items-center gap-1.5 text-emerald-400 text-xs">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Configured &amp; ready
+              </div>
+            ) : installedInOllama ? (
+              <button
+                onClick={handleRegister}
+                disabled={registering || !ollamaUrl}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald/20 hover:bg-emerald/35 text-emerald text-xs font-medium disabled:opacity-40 transition-colors"
+              >
+                {registering
+                  ? <><Loader2 className="w-3 h-3 animate-spin" /> Adding…</>
+                  : <><Plus className="w-3 h-3" /> Add to Lanara</>}
+              </button>
+            ) : (
+              <button
+                onClick={handleDownload}
+                disabled={!ollamaUrl}
+                title={!ollamaUrl ? "Ollama URL not configured" : undefined}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan/20 hover:bg-cyan/35 text-cyan text-xs font-medium disabled:opacity-40 transition-colors"
+              >
+                <Download className="w-3 h-3" />
+                Download
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+
+// ── Hugging Face live catalog ──────────────────────────────────────────────
+
+function HFCatalogView({ models, mutate }: { models: AiModel[]; mutate: () => void }) {
+  const { data: items = [], isLoading } = useSWR(
+    "catalog-items-model",
+    () => api.catalog.items("model", 200),
+    { refreshInterval: 60_000 },
+  );
+  const [q, setQ] = useState("");
+  const [adding, setAdding] = useState<Record<string, boolean>>({});
+
+  const filtered = q.trim()
+    ? items.filter((item) => {
+        const name = ((item.payload.name as string) || "").toLowerCase();
+        const id   = ((item.payload.id   as string) || "").toLowerCase();
+        const s = q.trim().toLowerCase();
+        return name.includes(s) || id.includes(s);
+      })
+    : items;
+
+  const isAdded = (item: CatalogItem) =>
+    models.some((m) => m.model_id === (item.payload.id as string));
+
+  const handleAdd = async (item: CatalogItem) => {
+    const p = item.payload;
+    const modelId = p.id as string;
+    setAdding((prev) => ({ ...prev, [item.id]: true }));
+    try {
+      await api.aiModels.create({
+        name: (p.name as string) || modelId,
+        type: "api",
+        provider: "Hugging Face",
+        model_id: modelId,
+        description: `From Hugging Face. Downloads: ${((p.downloads as number) ?? 0).toLocaleString()}`,
+        enabled: false,
+      });
+      mutate();
+    } catch { /* already exists — silently ignore */ } finally {
+      setAdding((prev) => ({ ...prev, [item.id]: false }));
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-3" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search Hugging Face models…"
+            className="w-full pl-9 pr-3 py-2 bg-surface-2 border border-border rounded-lg text-sm text-text-1 placeholder:text-text-3 outline-none focus:border-violet"
+          />
+        </div>
+        {!isLoading && (
+          <span className="text-xs text-text-3">
+            {filtered.length.toLocaleString()} model{filtered.length !== 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-text-3 text-sm">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading catalog…
+        </div>
+      ) : items.length === 0 ? (
+        <div className="glass rounded-2xl p-6 text-center space-y-2">
+          <p className="text-sm text-text-2">No models synced yet.</p>
+          <p className="text-xs text-text-3">
+            Go to <strong>Admin → Catalog Sources</strong> and trigger a sync for Hugging Face.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <AnimatePresence mode="popLayout">
+            {filtered.slice(0, 100).map((item) => {
+              const p = item.payload;
+              const added = isAdded(item);
+              return (
+                <motion.div
+                  key={item.id}
+                  layout
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  className="glass rounded-2xl p-4 flex flex-col gap-3"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold text-text-1 truncate">
+                          {(p.name as string) || (p.id as string)}
+                        </p>
+                        {added && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-400/10 text-emerald-400 border border-emerald-400/20 font-medium shrink-0">
+                            Added
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-text-3 font-mono mt-0.5 truncate">{p.id as string}</p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-xs font-mono text-text-2">
+                        {((p.downloads as number) ?? 0).toLocaleString()}
+                      </p>
+                      <p className="text-[10px] text-text-3">↓</p>
+                    </div>
+                  </div>
+
+                  {Array.isArray(p.tags) && (p.tags as string[]).length > 0 && (
+                    <div className="flex gap-1 flex-wrap">
+                      {(p.tags as string[]).slice(0, 4).map((tag) => (
+                        <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-text-3">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between pt-1">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-400/10 border border-amber-400/20 text-amber-400 font-medium">
+                      huggingface
+                    </span>
+                    <button
+                      onClick={() => handleAdd(item)}
+                      disabled={added || adding[item.id]}
+                      className={cn(
+                        "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                        added
+                          ? "text-emerald-400 cursor-default"
+                          : adding[item.id]
+                          ? "opacity-50 cursor-not-allowed text-violet"
+                          : "bg-violet/20 hover:bg-violet/35 text-violet",
+                      )}
+                    >
+                      {added
+                        ? <><CheckCircle2 className="w-3 h-3" /> Added</>
+                        : adding[item.id]
+                        ? <><Loader2 className="w-3 h-3 animate-spin" /> Adding…</>
+                        : <><Plus className="w-3 h-3" /> Add model</>}
+                    </button>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Live MCP registry ──────────────────────────────────────────────────────
+
+function LiveMcpRegistryView({
+  servers,
+  onAdd,
+}: {
+  servers: McpServer[];
+  onAdd: (name: string, url: string, desc: string) => void;
+}) {
+  const { data: items = [], isLoading } = useSWR(
+    "catalog-items-mcp",
+    () => api.catalog.items("mcp_server", 200),
+    { refreshInterval: 60_000 },
+  );
+  const [q, setQ] = useState("");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "mcp_registry" | "pulsemcp">("all");
+
+  const filtered = items.filter((item) => {
+    if (sourceFilter !== "all" && item.payload.source !== sourceFilter) return false;
+    if (!q.trim()) return true;
+    const name = ((item.payload.name as string) || "").toLowerCase();
+    const desc = ((item.payload.description as string) || "").toLowerCase();
+    return name.includes(q.toLowerCase()) || desc.includes(q.toLowerCase());
+  });
+
+  const isInstalled = (item: CatalogItem) =>
+    servers.some(
+      (s) => s.name.toLowerCase() === ((item.payload.name as string) || "").toLowerCase(),
+    );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-3" />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search MCP servers…"
+            className="w-full pl-9 pr-3 py-2 bg-surface-2 border border-border rounded-lg text-sm text-text-1 placeholder:text-text-3 outline-none focus:border-violet"
+          />
+        </div>
+        <div className="flex items-center bg-surface-2 rounded-lg p-0.5 border border-border">
+          {(["all", "mcp_registry", "pulsemcp"] as const).map((src) => (
+            <button
+              key={src}
+              onClick={() => setSourceFilter(src)}
+              className={cn(
+                "px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+                sourceFilter === src ? "bg-violet/20 text-violet" : "text-text-3 hover:text-text-2",
+              )}
+            >
+              {src === "all" ? "All" : src === "mcp_registry" ? "MCP Registry" : "PulseMCP"}
+            </button>
+          ))}
+        </div>
+        {!isLoading && (
+          <span className="text-xs text-text-3">
+            {filtered.length.toLocaleString()} server{filtered.length !== 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-text-3 text-sm">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading registry…
+        </div>
+      ) : items.length === 0 ? (
+        <div className="glass rounded-2xl p-6 text-center space-y-2">
+          <p className="text-sm text-text-2">No servers synced yet.</p>
+          <p className="text-xs text-text-3">
+            Go to <strong>Admin → Catalog Sources</strong> and trigger a sync for MCP Registry or PulseMCP.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <AnimatePresence mode="popLayout">
+            {filtered.slice(0, 100).map((item) => {
+              const p = item.payload;
+              const installed = isInstalled(item);
+              const hasUrl = !!(p.url as string);
+              return (
+                <motion.div
+                  key={item.id}
+                  layout
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  className="glass rounded-2xl p-4 flex flex-col gap-3"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold text-text-1">{p.name as string}</p>
+                        {installed && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-400/10 text-emerald-400 border border-emerald-400/20 font-medium">
+                            Installed
+                          </span>
+                        )}
+                      </div>
+                      <span className={cn(
+                        "inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded border font-medium",
+                        p.source === "pulsemcp"
+                          ? "bg-sky-400/10 text-sky-400 border-sky-400/20"
+                          : "bg-violet/10 text-violet border-violet/20",
+                      )}>
+                        {p.source as string}
+                      </span>
+                    </div>
+                    {hasUrl && (
+                      <a
+                        href={p.url as string}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-text-3 hover:text-text-2 transition-colors shrink-0 mt-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    )}
+                  </div>
+
+                  {p.description && (
+                    <p className="text-xs text-text-3 leading-relaxed line-clamp-3">
+                      {p.description as string}
+                    </p>
+                  )}
+
+                  <div className="flex items-center justify-between pt-1">
+                    <div className="flex gap-1 flex-wrap">
+                      {Array.isArray(p.tags) && (p.tags as string[]).slice(0, 2).map((tag) => (
+                        <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-text-3">
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => onAdd(
+                        (p.name as string) || "",
+                        (p.url  as string) || "",
+                        (p.description as string) || "",
+                      )}
+                      disabled={installed}
+                      className={cn(
+                        "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
+                        installed
+                          ? "text-emerald-400 cursor-default"
+                          : "bg-violet/20 hover:bg-violet/35 text-violet",
+                      )}
+                    >
+                      {installed
+                        ? <><CheckCircle2 className="w-3 h-3" /> Installed</>
+                        : <><Plus className="w-3 h-3" /> Add</>}
+                    </button>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OllamaLibraryView({ models, mutate }: { models: AiModel[]; mutate: () => void }) {
+  const [categoryFilter, setCategoryFilter] = useState("All");
+  const [ollamaUrl,       setOllamaUrl]      = useState("");
+  const [installedIds,    setInstalledIds]   = useState<string[]>([]);
+  const [loadingOllama,   setLoadingOllama]  = useState(true);
+  const [ollamaError,     setOllamaError]    = useState("");
+
+  const fetchInstalled = async (url: string) => {
+    setLoadingOllama(true); setOllamaError("");
+    try {
+      const available = await api.aiModels.providerModels("Ollama", url);
+      setInstalledIds(available.map((m) => m.id));
+    } catch {
+      setOllamaError("Cannot reach Ollama. Run `ollama serve` to start it.");
+      setInstalledIds([]);
+    } finally {
+      setLoadingOllama(false);
+    }
+  };
+
+  useEffect(() => {
+    api.config().then((cfg) => {
+      setOllamaUrl(cfg.ollama_url);
+      fetchInstalled(cfg.ollama_url);
+    }).catch(() => {
+      const fallback = "http://localhost:11434";
+      setOllamaUrl(fallback);
+      fetchInstalled(fallback);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleRegistered = () => {
+    mutate();
+    if (ollamaUrl) fetchInstalled(ollamaUrl);
+  };
+
+  const filtered = categoryFilter === "All"
+    ? MODEL_CATALOG
+    : MODEL_CATALOG.filter((m) => m.category === categoryFilter);
+
+  return (
+    <div className="space-y-5">
+      {/* Ollama connection status */}
+      {loadingOllama ? (
+        <div className="flex items-center gap-2 text-xs text-text-3">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          Connecting to Ollama…
+        </div>
+      ) : ollamaError ? (
+        <div className="flex items-center gap-3 rounded-xl border border-amber-400/20 bg-amber-400/5 px-4 py-3">
+          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs text-amber-400">{ollamaError}</p>
+            <p className="text-[10px] text-text-3 mt-0.5 font-mono">ollama serve</p>
+          </div>
+          <button
+            onClick={() => fetchInstalled(ollamaUrl)}
+            className="text-amber-400 hover:text-amber-300 transition-colors shrink-0"
+            title="Retry"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs text-text-3">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            Ollama connected
+            <span className="text-text-3">·</span>
+            {installedIds.length} model{installedIds.length !== 1 ? "s" : ""} downloaded locally
+          </div>
+          <button
+            onClick={() => fetchInstalled(ollamaUrl)}
+            className="text-text-3 hover:text-text-2 transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Category filter */}
+      <div className="flex gap-2 flex-wrap">
+        {MODEL_CATEGORIES.map((cat) => (
+          <button
+            key={cat}
+            onClick={() => setCategoryFilter(cat)}
+            className={cn(
+              "px-3 py-1 rounded-full text-xs font-medium border transition-colors",
+              categoryFilter === cat
+                ? "bg-violet/20 border-violet/40 text-violet"
+                : "border-border text-text-3 hover:text-text-2 hover:border-white/20",
+            )}
+          >
+            {cat}
+          </button>
+        ))}
+      </div>
+
+      {/* Card grid */}
+      <div className="grid grid-cols-2 gap-3">
+        <AnimatePresence mode="popLayout">
+          {filtered.map((model) => (
+            <ModelCatalogCard
+              key={model.id}
+              model={model}
+              ollamaUrl={ollamaUrl}
+              installedInOllama={isModelInstalled(installedIds, model.ollamaId)}
+              configured={models.some((m) => m.model_id === model.ollamaId)}
+              onRegistered={handleRegistered}
+            />
+          ))}
+        </AnimatePresence>
+      </div>
+    </div>
   );
 }
 

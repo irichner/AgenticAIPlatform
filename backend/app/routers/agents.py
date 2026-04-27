@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from sqlalchemy import select
 from uuid import UUID
 
@@ -11,9 +12,18 @@ from app.agents.prebuilt import PREBUILT_META, list_prebuilt_types
 from app.dependencies import get_db
 from app.models.agent import Agent, AgentVersion
 from app.models.business_unit import BusinessUnit
+from app.models.mcp_server import McpServer
 from app.schemas.agent import AgentCreate, AgentUpdate, AgentOut, AgentVersionOut
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+async def _load_agent(db: AsyncSession, agent_id: UUID) -> Agent | None:
+    """Fetch agent with mcp_servers relationship eagerly loaded."""
+    result = await db.execute(
+        select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.mcp_servers))
+    )
+    return result.scalar_one_or_none()
 
 
 @router.get("", response_model=list[AgentOut])
@@ -21,7 +31,7 @@ async def list_agents(
     business_unit_id: UUID | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(Agent)
+    stmt = select(Agent).options(selectinload(Agent.mcp_servers))
     if business_unit_id:
         stmt = stmt.where(Agent.business_unit_id == business_unit_id)
     result = await db.execute(stmt.order_by(Agent.name))
@@ -83,9 +93,16 @@ async def create_agent(
         description=payload.description,
         status=payload.status or "draft",
         group_id=payload.group_id,
+        model_id=payload.model_id,
     )
     db.add(agent)
     await db.flush()
+
+    if payload.mcp_server_ids:
+        mcp_result = await db.execute(
+            select(McpServer).where(McpServer.id.in_(payload.mcp_server_ids))
+        )
+        agent.mcp_servers = list(mcp_result.scalars().all())
 
     version = AgentVersion(
         agent_id=agent.id,
@@ -96,14 +113,13 @@ async def create_agent(
     )
     db.add(version)
     await db.commit()
-    await db.refresh(agent)
-    return agent
+
+    return await _load_agent(db, agent.id)
 
 
 @router.get("/{agent_id}", response_model=AgentOut)
 async def get_agent(agent_id: UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
-    agent = result.scalar_one_or_none()
+    agent = await _load_agent(db, agent_id)
     if agent is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     return agent
@@ -115,13 +131,29 @@ async def update_agent(
     payload: AgentUpdate,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+    result = await db.execute(
+        select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.mcp_servers))
+    )
     agent = result.scalar_one_or_none()
     if agent is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
     update_data = payload.model_dump(exclude_unset=True)
     prompt = update_data.pop("prompt", None)
+
+    # Handle MCP assignment separately — not a direct column
+    if "mcp_server_ids" in update_data:
+        mcp_server_ids = update_data.pop("mcp_server_ids")
+        if mcp_server_ids is not None:
+            if mcp_server_ids:
+                mcp_result = await db.execute(
+                    select(McpServer).where(McpServer.id.in_(mcp_server_ids))
+                )
+                agent.mcp_servers = list(mcp_result.scalars().all())
+            else:
+                agent.mcp_servers = []
+    else:
+        update_data.pop("mcp_server_ids", None)
 
     for field, value in update_data.items():
         setattr(agent, field, value)
@@ -138,8 +170,8 @@ async def update_agent(
             version.prompt = prompt
 
     await db.commit()
-    await db.refresh(agent)
-    return agent
+
+    return await _load_agent(db, agent_id)
 
 
 @router.post("/{agent_id}/publish", response_model=AgentOut)
@@ -151,8 +183,8 @@ async def publish_agent(agent_id: UUID, db: AsyncSession = Depends(get_db)):
 
     agent.status = "published"
     await db.commit()
-    await db.refresh(agent)
-    return agent
+
+    return await _load_agent(db, agent_id)
 
 
 @router.get("/{agent_id}/versions", response_model=list[AgentVersionOut])
@@ -217,5 +249,5 @@ async def create_prebuilt_agent(
     )
     db.add(version)
     await db.commit()
-    await db.refresh(agent)
-    return agent
+
+    return await _load_agent(db, agent.id)

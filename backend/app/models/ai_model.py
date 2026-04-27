@@ -1,9 +1,15 @@
 from __future__ import annotations
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import String, Text, Boolean, text
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
 import uuid
+from typing import TYPE_CHECKING
+
+from sqlalchemy import String, Text, Boolean, Integer, ForeignKey, text
+from sqlalchemy.dialects.postgresql import UUID as PGUUID, ARRAY
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 from app.models.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.models.api_provider import ApiProvider
 
 
 class AiModel(Base, TimestampMixin):
@@ -20,3 +26,19 @@ class AiModel(Base, TimestampMixin):
     api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("TRUE"))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Managed provider relationship
+    provider_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("api_providers.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    context_window: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    capabilities: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
+    is_auto_managed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("FALSE")
+    )
+
+    provider_rel: Mapped["ApiProvider | None"] = relationship(
+        "ApiProvider", back_populates="models"
+    )

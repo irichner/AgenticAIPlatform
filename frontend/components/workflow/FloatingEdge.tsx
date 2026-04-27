@@ -42,9 +42,20 @@ function side(pt: { x: number; y: number }, c: { x: number; y: number }): Positi
     : dy >= 0 ? Position.Bottom : Position.Top;
 }
 
+// ── Edge data type (label + condition metadata) ───────────────────────────────
+export type EdgeData = {
+  label?: string;
+  condition?: string;
+  edgeType?: "sequence" | "conditional" | "default";
+};
+
 // ── Floating edge component ───────────────────────────────────────────────────
 
-export function FloatingEdge({ id, source, target, markerEnd, style }: EdgeProps) {
+export function FloatingEdge({
+  id, source, target, markerEnd, style,
+  label, labelStyle, labelBgStyle,
+  data,
+}: EdgeProps) {
   const sourceNode = useStore(
     useCallback((s: ReactFlowState) => s.nodeLookup.get(source) as InternalNode | undefined, [source]),
   );
@@ -56,7 +67,6 @@ export function FloatingEdge({ id, source, target, markerEnd, style }: EdgeProps
 
   const sc = center(sourceNode);
   const tc = center(targetNode);
-
   const sp = borderPoint(sourceNode, tc);
   const tp = borderPoint(targetNode, sc);
 
@@ -69,5 +79,35 @@ export function FloatingEdge({ id, source, target, markerEnd, style }: EdgeProps
     targetPosition: side(tp, tc),
   });
 
-  return <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />;
+  // Label is placed at the geometric midpoint of the two border points
+  const labelX = (sp.x + tp.x) / 2;
+  const labelY = (sp.y + tp.y) / 2;
+
+  // Resolve display label: prefer explicit `label` prop, fall back to edge data
+  const displayLabel = label ?? (data as EdgeData | undefined)?.label;
+
+  return (
+    <BaseEdge
+      id={id}
+      path={path}
+      markerEnd={markerEnd}
+      style={style}
+      label={displayLabel}
+      labelX={labelX}
+      labelY={labelY}
+      labelStyle={{
+        fill: "rgba(255,255,255,0.88)",
+        fontSize: 11,
+        fontWeight: 500,
+        fontFamily: "inherit",
+        ...labelStyle,
+      }}
+      labelBgStyle={{
+        fill: "rgba(10,10,20,0.82)",
+        ...labelBgStyle,
+      }}
+      labelBgPadding={[4, 8]}
+      labelBgBorderRadius={6}
+    />
+  );
 }

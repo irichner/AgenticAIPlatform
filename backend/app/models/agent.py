@@ -1,10 +1,18 @@
 from __future__ import annotations
 from datetime import datetime
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import String, Text, Integer, ForeignKey, UniqueConstraint, DateTime, text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import String, Text, Integer, ForeignKey, UniqueConstraint, DateTime, Table, Column, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
 import uuid
 from app.models.base import Base, TimestampMixin
+
+
+agent_mcp_servers = Table(
+    "agent_mcp_servers",
+    Base.metadata,
+    Column("agent_id", PGUUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), primary_key=True),
+    Column("mcp_server_id", PGUUID(as_uuid=True), ForeignKey("mcp_servers.id", ondelete="CASCADE"), primary_key=True),
+)
 
 
 class Agent(Base, TimestampMixin):
@@ -19,11 +27,19 @@ class Agent(Base, TimestampMixin):
     group_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("agent_groups.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    model_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("ai_models.id", ondelete="SET NULL"), nullable=True
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, server_default="draft")
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    mcp_servers = relationship(
+        "McpServer",
+        secondary=agent_mcp_servers,
+        lazy="selectin",
     )
 
 

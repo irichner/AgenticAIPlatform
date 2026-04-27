@@ -19,10 +19,13 @@ import {
   MessagesSquare,
   Plus,
   Trash2,
+  LogOut,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useThreads } from "@/components/shared/ThreadsProvider";
 import { useBranding } from "@/components/shared/BrandingProvider";
+import { useAuth } from "@/contexts/auth";
 import { api } from "@/lib/api";
 
 type CreateAction = "dept" | "agent" | "workflow" | null;
@@ -44,6 +47,23 @@ export function Sidebar() {
   const { threads, activeThreadId, startNewChat, loadThread, deleteThread } = useThreads();
   const [collapsed, setCollapsed] = useState(false);
   const { appName, appIcon } = useBranding();
+  const { user, currentOrg, setCurrentOrg, logout } = useAuth();
+  const [orgPickerOpen, setOrgPickerOpen] = useState(false);
+  const orgPickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!orgPickerOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (orgPickerRef.current && !orgPickerRef.current.contains(e.target as Node))
+        setOrgPickerOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [orgPickerOpen]);
+
+  const initials = user?.email
+    ? user.email.slice(0, 2).toUpperCase()
+    : "?";
 
   // ── Swarm creation ────────────────────────────────────────────────────────
   const [creatingDept, setCreatingDept]   = useState(false);
@@ -212,6 +232,88 @@ export function Sidebar() {
           )}
         </div>
       )}
+      {/* User profile */}
+      <div className="border-t border-border p-2 shrink-0">
+        {user ? (
+          <div className="relative" ref={orgPickerRef}>
+            {/* Org picker dropdown */}
+            {orgPickerOpen && (user.orgs?.length ?? 0) > 0 && (
+              <div className="absolute bottom-full left-0 right-0 mb-1 bg-surface-1 rounded-xl border border-border shadow-xl overflow-hidden z-50">
+                <p className="px-3 py-2 text-[10px] font-medium text-text-3 uppercase tracking-widest border-b border-border">
+                  Switch org
+                </p>
+                {user.orgs.map((org) => (
+                  <button
+                    key={org.id}
+                    onClick={() => { setCurrentOrg(org); setOrgPickerOpen(false); }}
+                    className={cn(
+                      "w-full flex items-center gap-2 px-3 py-2 text-left text-xs transition-colors",
+                      org.id === currentOrg?.id
+                        ? "bg-violet/10 text-violet"
+                        : "text-text-2 hover:bg-surface-2",
+                    )}
+                  >
+                    <div className="w-5 h-5 rounded bg-gradient-to-br from-violet to-cyan flex items-center justify-center text-[9px] font-bold text-white shrink-0">
+                      {org.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="truncate font-medium">{org.name}</p>
+                      <p className="truncate text-[10px] text-text-3">{org.role_key.replace("org.", "")}</p>
+                    </div>
+                    {org.id === currentOrg?.id && <Check className="w-3 h-3 shrink-0" />}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="flex items-center gap-2">
+              {/* Avatar + email */}
+              <button
+                onClick={() => (user.orgs?.length ?? 0) > 1 ? setOrgPickerOpen((v) => !v) : undefined}
+                title={user.email}
+                className={cn(
+                  "flex items-center gap-2 flex-1 min-w-0 rounded-lg px-1.5 py-1.5 transition-colors",
+                  (user.orgs?.length ?? 0) > 1 ? "hover:bg-surface-2 cursor-pointer" : "cursor-default",
+                )}
+              >
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet/60 to-cyan/60 flex items-center justify-center text-[11px] font-bold text-white shrink-0">
+                  {initials}
+                </div>
+                {!collapsed && (
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-text-1 truncate">
+                      {currentOrg?.name ?? user.email}
+                    </p>
+                    <p className="text-[10px] text-text-3 truncate">{user.email}</p>
+                  </div>
+                )}
+                {!collapsed && (user.orgs?.length ?? 0) > 1 && (
+                  <ChevronDown className="w-3 h-3 text-text-3 shrink-0" />
+                )}
+              </button>
+
+              {/* Logout */}
+              <button
+                onClick={logout}
+                title="Sign out"
+                className="shrink-0 p-1.5 rounded-lg text-text-3 hover:text-rose-400 hover:bg-surface-2 transition-colors"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        ) : (
+          !collapsed && (
+            <Link
+              href="/login"
+              className="flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-text-3 hover:text-text-1 hover:bg-surface-2 transition-colors"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Sign in</span>
+            </Link>
+          )
+        )}
+      </div>
     </aside>
   );
 }

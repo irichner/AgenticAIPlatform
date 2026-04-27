@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.llm import get_active_llm
+from app.agents.llm import get_active_llm, get_llm_by_id
 from app.core.mcp_client import get_mcp_tools
 from app.dependencies import get_db
 from app.models.mcp_server import McpServer
@@ -35,33 +35,47 @@ class HistoryMessage(BaseModel):
 class AskRequest(BaseModel):
     message: str
     history: list[HistoryMessage] = []
+    model_id: str | None = None
 
 
 @router.post("")
 async def ask_lanara(payload: AskRequest, db: AsyncSession = Depends(get_db)):
-    llm = await get_active_llm(db)
-
-    result = await db.execute(
-        select(McpServer).where(McpServer.enabled == True).order_by(McpServer.name)
-    )
-    servers = result.scalars().all()
-    tools = await get_mcp_tools(servers)
-
-    llm_bound = llm.bind_tools(tools) if tools else llm
-
-    messages: list = [SystemMessage(content=BASE_SYSTEM_PROMPT)]
-    for msg in payload.history[-20:]:
-        if msg.role == "user":
-            messages.append(HumanMessage(content=msg.content))
-        else:
-            messages.append(AIMessage(content=msg.content))
-    messages.append(HumanMessage(content=payload.message))
-
     async def event_stream():
+        try:
+            llm = await get_llm_by_id(db, payload.model_id) if payload.model_id else await get_active_llm(db)
+        except Exception as exc:
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+        result = await db.execute(
+            select(McpServer).where(McpServer.enabled == True).order_by(McpServer.name)
+        )
+        servers = result.scalars().all()
+        tools = await get_mcp_tools(servers)
+
+        llm_bound = llm.bind_tools(tools) if tools else llm
+
+        messages: list = [SystemMessage(content=BASE_SYSTEM_PROMPT)]
+        for msg in payload.history[-20:]:
+            if msg.role == "user":
+                messages.append(HumanMessage(content=msg.content))
+            else:
+                messages.append(AIMessage(content=msg.content))
+        messages.append(HumanMessage(content=payload.message))
+
         msgs = list(messages)
+        bound = llm_bound
         try:
             for _ in range(MAX_TOOL_ROUNDS):
-                response = await llm_bound.ainvoke(msgs)
+                try:
+                    response = await bound.ainvoke(msgs)
+                except Exception as exc:
+                    if tools and "does not support tools" in str(exc):
+                        bound = llm
+                        response = await bound.ainvoke(msgs)
+                    else:
+                        raise
                 msgs.append(response)
 
                 if not getattr(response, "tool_calls", None):
