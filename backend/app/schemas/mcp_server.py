@@ -54,8 +54,6 @@ class McpServerOut(BaseModel):
     slug: str | None
     base_url: str | None
     auth_config: dict | None
-    source_repo: str | None
-    last_generated_at: datetime | None
     created_at: datetime
     updated_at: datetime
     tools: list[McpToolOut] = []

@@ -73,12 +73,10 @@ export interface McpServer {
   transport: string;
   description: string | null;
   enabled: boolean;
-  runtime_mode: "external" | "dynamic" | "code_generated";
+  runtime_mode: "external" | "dynamic";
   slug: string | null;
   base_url: string | null;
   auth_config: Record<string, unknown> | null;
-  source_repo: string | null;
-  last_generated_at: string | null;
   tools: McpTool[];
   created_at: string;
   updated_at: string;
@@ -180,33 +178,6 @@ export interface WorkflowVersionOut {
   bpmn_xml: string | null;
   note: string | null;
   created_at: string;
-}
-
-export interface CatalogSource {
-  id: string;
-  kind: "models" | "mcp_servers";
-  display_name: string;
-  base_url: string;
-  requires_auth: boolean;
-  default_enabled: boolean;
-  sync_interval_seconds: number;
-  enabled: boolean;
-  last_sync_at: string | null;
-  last_sync_status: "ok" | "error" | "auth_failed" | "rate_limited" | null;
-}
-
-export interface CatalogItem {
-  id: string;
-  source_id: string;
-  external_id: string;
-  kind: string;
-  payload: Record<string, unknown>;
-  fetched_at: string;
-}
-
-export interface SourceItemCount {
-  source_id: string;
-  count: number;
 }
 
 export interface ApprovalRequest {
@@ -581,17 +552,6 @@ export const api = {
     }) => req<McpServer>("POST", "/mcp-servers/import-openapi", payload),
     updateTool: (serverId: string, toolId: string, payload: { description?: string; enabled?: boolean }) =>
       req<McpTool>("PATCH", `/mcp-servers/${serverId}/tools/${toolId}`, payload),
-    exportCode: async (serverId: string, slug: string): Promise<void> => {
-      const res = await fetch(`/api/mcp-servers/${serverId}/export`, { method: "POST", headers: { "X-Role": "editor", ..._getOrgHeader() } });
-      if (!res.ok) throw new Error(`Export failed: ${res.status}`);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `mcp-${slug}.zip`;
-      a.click();
-      URL.revokeObjectURL(url);
-    },
   },
 
   businessUnits: {
@@ -737,18 +697,6 @@ export const api = {
       } finally { reader.releaseLock(); }
       onDone();
     },
-  },
-
-  catalog: {
-    sources: {
-      list: () => req<CatalogSource[]>("GET", "/catalog/admin/sources"),
-      patch: (id: string, payload: { enabled?: boolean }) =>
-        req<CatalogSource>("PATCH", `/catalog/admin/sources/${id}`, payload),
-      sync: (id: string) => req<CatalogSource>("POST", `/catalog/admin/sources/${id}/sync`),
-      itemCount: (id: string) => req<SourceItemCount>("GET", `/catalog/admin/sources/${id}/items/count`),
-    },
-    items: (kind?: "model" | "mcp_server", limit = 200) =>
-      req<CatalogItem[]>("GET", `/catalog/items${kind ? `?kind=${kind}&limit=${limit}` : `?limit=${limit}`}`),
   },
 
   workflows: {

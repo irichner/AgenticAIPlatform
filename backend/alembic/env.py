@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from app.models.base import Base
 # Import all models so Alembic sees their metadata
 import app.models  # noqa: F401
+import app.mcp_gateway.models  # noqa: F401
 
 config = context.config
 

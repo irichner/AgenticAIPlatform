@@ -7,16 +7,15 @@ import {
   BookOpen, Upload, Trash2, Search, RefreshCw,
   FileText, AlertCircle, CheckCircle2, Loader2,
   Plus, Pencil, Check, X, Eye, EyeOff, Cpu, KeyRound, Download,
-  Globe, ExternalLink, Sparkles, HardDrive, Database,
-  ChevronDown, ChevronRight, Zap, Code2,
+  Globe, ExternalLink, Sparkles, HardDrive,
+  ChevronDown, ChevronRight, Zap,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { api, type BusinessUnit, type Document, type SearchResult, type McpServer, type McpTool, type AiModel, type ApiProvider, type CatalogItem } from "@/lib/api";
+import { api, type BusinessUnit, type Document, type SearchResult, type McpServer, type McpTool, type AiModel, type ApiProvider } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useAuth } from "@/contexts/auth";
 import { removeOrgItem } from "@/lib/org-storage";
-import { CatalogSourcesTab } from "@/components/admin/CatalogSourcesTab";
 import { MembersTab } from "@/components/admin/MembersTab";
 import { RolesTab } from "@/components/admin/RolesTab";
 import { AuditLogTab } from "@/components/admin/AuditLogTab";
@@ -36,9 +35,8 @@ const GROUPS: { id: GroupId; label: string }[] = [
 
 const SUB_TABS: Record<GroupId, { id: string; label: string }[]> = {
   intelligence: [
-    { id: "ai",      label: "AI Models" },
-    { id: "mcp",     label: "MCP Servers" },
-    { id: "catalog", label: "Catalog Sync" },
+    { id: "ai",  label: "AI Models" },
+    { id: "mcp", label: "MCP Servers" },
   ],
   knowledge: [],
   settings: [
@@ -68,7 +66,6 @@ const DEFAULT_SUB: Record<GroupId, string> = {
 const TAB_PARAM_MAP: Record<string, { group: GroupId; sub: string }> = {
   ai:           { group: "intelligence", sub: "ai" },
   mcp:          { group: "intelligence", sub: "mcp" },
-  catalog:      { group: "intelligence", sub: "catalog" },
   knowledge:    { group: "knowledge",    sub: "" },
   settings:     { group: "settings",     sub: "platform" },
   org:          { group: "settings",     sub: "org" },
@@ -156,9 +153,8 @@ function AdminPageInner() {
 
         {/* Tab content */}
         <main className="flex-1 overflow-y-auto">
-          {activeGroup === "intelligence" && activeSubTab === "ai"       && <div className="p-6"><AiModelsTab /></div>}
-          {activeGroup === "intelligence" && activeSubTab === "mcp"      && <div className="p-6"><McpServersTab /></div>}
-          {activeGroup === "intelligence" && activeSubTab === "catalog"  && <div className="p-6"><CatalogSourcesTab /></div>}
+          {activeGroup === "intelligence" && activeSubTab === "ai"  && <div className="p-6"><AiModelsTab /></div>}
+          {activeGroup === "intelligence" && activeSubTab === "mcp" && <div className="p-6"><McpServersTab /></div>}
           {activeGroup === "knowledge"                                   && <div className="p-6"><KnowledgeSourcesTab /></div>}
           {activeGroup === "settings"     && activeSubTab === "org"        && <OrgSettingsTab />}
           {activeGroup === "settings"     && activeSubTab === "workspaces" && <div className="p-6"><WorkspacesTab /></div>}
@@ -1243,7 +1239,7 @@ function AiModelsTab() {
   const { data: models = [], mutate: mutateModels, isLoading } = useSWR(aiOrgKey ? ["ai-models", aiOrgKey] : null, () => api.aiModels.list());
   const { data: providers = [], mutate: mutateProviders } = useSWR(aiOrgKey ? ["api-providers", aiOrgKey] : null, () => api.apiProviders.list());
 
-  const [aiView, setAiView] = useState<"library" | "providers" | "models" | "hf">("providers");
+  const [aiView, setAiView] = useState<"library" | "providers" | "models">("providers");
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -1293,22 +1289,12 @@ function AiModelsTab() {
               </span>
             )}
           </button>
-          <button
-            onClick={() => setAiView("hf")}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
-              aiView === "hf" ? "bg-amber-400/20 text-amber-400" : "text-text-3 hover:text-text-2",
-            )}
-          >
-            <Globe className="w-3 h-3" /> HF Catalog
-          </button>
         </div>
       </div>
 
       {aiView === "library"   && <OllamaLibraryView models={models} mutate={mutateModels} />}
       {aiView === "providers" && <ProvidersView providers={providers} mutate={mutateProviders} mutateModels={mutateModels} />}
       {aiView === "models"    && <ModelsView models={models} mutate={mutateModels} loading={isLoading} />}
-      {aiView === "hf"        && <HFCatalogView />}
     </div>
   );
 }
@@ -1499,189 +1485,6 @@ function SettingsTab() {
   );
 }
 
-// ── MCP Marketplace catalog ───────────────────────────────────────────────────
-
-interface McpCatalogItem {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  icon: string;
-  transport: "streamable_http" | "sse" | "stdio";
-  defaultUrl: string;
-  githubUrl: string;
-  tags: string[];
-}
-
-const CATALOG_CATEGORIES = ["All", "CRM", "Data", "Productivity", "Dev", "Search", "Communication", "AI"];
-
-const CATEGORY_STYLES: Record<string, string> = {
-  CRM:           "bg-violet/10 text-violet border-violet/20",
-  Data:          "bg-cyan/10 text-cyan border-cyan/20",
-  Productivity:  "bg-amber-400/10 text-amber-400 border-amber-400/20",
-  Dev:           "bg-emerald-400/10 text-emerald-400 border-emerald-400/20",
-  Search:        "bg-white/5 text-text-2 border-white/10",
-  Communication: "bg-blue-400/10 text-blue-400 border-blue-400/20",
-  AI:            "bg-rose-400/10 text-rose-400 border-rose-400/20",
-};
-
-const MCP_CATALOG: McpCatalogItem[] = [
-  {
-    id: "salesforce",
-    name: "Salesforce",
-    description: "Query CRM objects, opportunities, accounts, leads, and run SOQL against your Salesforce org.",
-    category: "CRM",
-    icon: "☁️",
-    transport: "streamable_http",
-    defaultUrl: "http://localhost:8010/mcp",
-    githubUrl: "https://github.com/modelcontextprotocol/servers",
-    tags: ["crm", "opportunities", "accounts"],
-  },
-  {
-    id: "hubspot",
-    name: "HubSpot",
-    description: "Access deals, contacts, companies, and marketing pipelines from HubSpot CRM.",
-    category: "CRM",
-    icon: "🟠",
-    transport: "streamable_http",
-    defaultUrl: "http://localhost:8011/mcp",
-    githubUrl: "https://github.com/hubspot/hubspot-mcp-server",
-    tags: ["crm", "deals", "contacts"],
-  },
-  {
-    id: "postgres",
-    name: "PostgreSQL",
-    description: "Query your PostgreSQL database using natural language — tables, views, and aggregations.",
-    category: "Data",
-    icon: "🐘",
-    transport: "streamable_http",
-    defaultUrl: "http://localhost:8012/mcp",
-    githubUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/postgres",
-    tags: ["database", "sql", "analytics"],
-  },
-  {
-    id: "google-sheets",
-    name: "Google Sheets",
-    description: "Read and write spreadsheets — comp plans, territory splits, and quota targets.",
-    category: "Data",
-    icon: "📊",
-    transport: "streamable_http",
-    defaultUrl: "http://localhost:8013/mcp",
-    githubUrl: "https://github.com/modelcontextprotocol/servers",
-    tags: ["spreadsheets", "comp plans", "quotas"],
-  },
-  {
-    id: "sqlite",
-    name: "SQLite",
-    description: "Lightweight local database access for SPM prototyping and test datasets.",
-    category: "Data",
-    icon: "🗄️",
-    transport: "stdio",
-    defaultUrl: "http://localhost:8014/mcp",
-    githubUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/sqlite",
-    tags: ["database", "local"],
-  },
-  {
-    id: "slack",
-    name: "Slack",
-    description: "Send quota alerts, clawback notices, and SPIF updates to Slack channels.",
-    category: "Communication",
-    icon: "💬",
-    transport: "streamable_http",
-    defaultUrl: "http://localhost:8015/mcp",
-    githubUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/slack",
-    tags: ["notifications", "messaging", "alerts"],
-  },
-  {
-    id: "linear",
-    name: "Linear",
-    description: "Manage RevOps issues, sprints, and projects. Track comp plan changes and rollout tasks.",
-    category: "Dev",
-    icon: "📋",
-    transport: "streamable_http",
-    defaultUrl: "http://localhost:8016/mcp",
-    githubUrl: "https://github.com/linear/linear-mcp-server",
-    tags: ["issues", "projects", "planning"],
-  },
-  {
-    id: "github",
-    name: "GitHub",
-    description: "Search repos, read files, manage issues, and review pull requests via the GitHub API.",
-    category: "Dev",
-    icon: "🐙",
-    transport: "streamable_http",
-    defaultUrl: "http://localhost:8017/mcp",
-    githubUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/github",
-    tags: ["code", "repos", "pull requests"],
-  },
-  {
-    id: "google-drive",
-    name: "Google Drive",
-    description: "Search and read files from Google Drive — comp plan docs, policies, territory maps.",
-    category: "Productivity",
-    icon: "📁",
-    transport: "streamable_http",
-    defaultUrl: "http://localhost:8018/mcp",
-    githubUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/gdrive",
-    tags: ["documents", "files", "google"],
-  },
-  {
-    id: "notion",
-    name: "Notion",
-    description: "Query Notion pages and databases — runbooks, sales playbooks, onboarding docs.",
-    category: "Productivity",
-    icon: "📝",
-    transport: "streamable_http",
-    defaultUrl: "http://localhost:8019/mcp",
-    githubUrl: "https://github.com/makenotion/notion-mcp-server",
-    tags: ["docs", "knowledge", "wiki"],
-  },
-  {
-    id: "brave-search",
-    name: "Brave Search",
-    description: "Real-time web search for market data, competitor intel, and industry benchmarks.",
-    category: "Search",
-    icon: "🔍",
-    transport: "streamable_http",
-    defaultUrl: "http://localhost:8020/mcp",
-    githubUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/brave-search",
-    tags: ["search", "web", "research"],
-  },
-  {
-    id: "fetch",
-    name: "Fetch",
-    description: "Make HTTP requests to any REST API — CRM webhooks, payment processors, ERPs.",
-    category: "Search",
-    icon: "🌐",
-    transport: "stdio",
-    defaultUrl: "http://localhost:8021/mcp",
-    githubUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/fetch",
-    tags: ["http", "api", "webhooks"],
-  },
-  {
-    id: "memory",
-    name: "Memory",
-    description: "Persistent key-value store for agent memory — preferences, learned patterns, context.",
-    category: "AI",
-    icon: "🧠",
-    transport: "stdio",
-    defaultUrl: "http://localhost:8022/mcp",
-    githubUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/memory",
-    tags: ["memory", "persistence", "context"],
-  },
-  {
-    id: "filesystem",
-    name: "Filesystem",
-    description: "Read, write, and search local files — attach comp plans, CSVs, and reports for analysis.",
-    category: "Dev",
-    icon: "📂",
-    transport: "streamable_http",
-    defaultUrl: "http://mcp-filesystem:8023/mcp",
-    githubUrl: "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
-    tags: ["files", "local", "documents"],
-  },
-];
-
 const TRANSPORTS = ["streamable_http", "sse", "stdio"];
 
 function McpServersTab() {
@@ -1691,21 +1494,9 @@ function McpServersTab() {
     () => api.mcpServers.list(),
   );
 
-  // ── Sub-view & marketplace ────────────────────────────────────
-  const [mcpView, setMcpView] = useState<"marketplace" | "installed" | "registry">("marketplace");
-  const [categoryFilter, setCategoryFilter] = useState("All");
-
-  const filteredCatalog = categoryFilter === "All"
-    ? MCP_CATALOG
-    : MCP_CATALOG.filter((item) => item.category === categoryFilter);
-
-  const isInstalled = (item: McpCatalogItem) =>
-    servers.some((s) => s.name.toLowerCase() === item.name.toLowerCase());
-
   // ── OpenAPI import ────────────────────────────────────────────
   const [showImport,    setShowImport]    = useState(false);
   const [expandedTools, setExpandedTools] = useState<string | null>(null);
-  const [exportingId,   setExportingId]   = useState<string | null>(null);
 
   // ── Create ────────────────────────────────────────────────────
   const [creating, setCreating]     = useState(false);
@@ -1715,26 +1506,6 @@ function McpServersTab() {
   const [newDesc,  setNewDesc]      = useState("");
   const [saving,   setSaving]       = useState(false);
   const [createError, setCreateError] = useState("");
-
-  const applyPreset = (item: McpCatalogItem) => {
-    setNewName(item.name);
-    setNewUrl(item.defaultUrl);
-    setNewTransport(item.transport);
-    setNewDesc(item.description);
-    setCreateError("");
-    setCreating(true);
-    setMcpView("installed");
-  };
-
-  const addFromRegistry = (name: string, url: string, desc: string) => {
-    setNewName(name);
-    setNewUrl(url);
-    setNewTransport("streamable_http");
-    setNewDesc(desc);
-    setCreateError("");
-    setCreating(true);
-    setMcpView("installed");
-  };
 
   const handleCreate = async () => {
     const name = newName.trim();
@@ -1826,19 +1597,6 @@ function McpServersTab() {
     }
   };
 
-  // ── Export to code ────────────────────────────────────────────
-  const handleExport = async (s: McpServer) => {
-    setExportingId(s.id);
-    try {
-      await api.mcpServers.exportCode(s.id, s.slug ?? s.id);
-      mutate(); // refresh last_generated_at
-    } catch (e) {
-      console.error("Export failed:", e);
-    } finally {
-      setExportingId(null);
-    }
-  };
-
   return (
     <div className="max-w-4xl space-y-6">
       {/* Header */}
@@ -1846,115 +1604,32 @@ function McpServersTab() {
         <div>
           <h2 className="text-sm font-semibold text-text-1">MCP Servers</h2>
           <p className="text-xs text-text-3 mt-0.5">
-            {servers.length} server{servers.length !== 1 ? "s" : ""} installed
+            {servers.length} server{servers.length !== 1 ? "s" : ""} connected
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* Sub-tab pills */}
-          <div className="flex items-center bg-surface-2 rounded-lg p-0.5 border border-border">
+          {!showImport && (
             <button
-              onClick={() => setMcpView("marketplace")}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
-                mcpView === "marketplace" ? "bg-violet/20 text-violet" : "text-text-3 hover:text-text-2",
-              )}
+              onClick={() => { setShowImport(true); setCreating(false); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-400/15 hover:bg-amber-400/25 text-amber-400 text-sm font-medium transition-colors"
             >
-              <Globe className="w-3 h-3" />
-              Marketplace
+              <Zap className="w-3.5 h-3.5" />
+              Import OpenAPI
             </button>
+          )}
+          {!creating && !showImport && (
             <button
-              onClick={() => setMcpView("installed")}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
-                mcpView === "installed" ? "bg-white/10 text-text-1" : "text-text-3 hover:text-text-2",
-              )}
+              onClick={() => setCreating(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet/20 hover:bg-violet/35 text-violet text-sm font-medium transition-colors"
             >
-              Installed
-              {servers.length > 0 && (
-                <span className="px-1.5 py-0.5 rounded-full bg-white/10 text-text-2 text-[10px] font-mono leading-none">
-                  {servers.length}
-                </span>
-              )}
+              <Plus className="w-3.5 h-3.5" />
+              Add server
             </button>
-            <button
-              onClick={() => setMcpView("registry")}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
-                mcpView === "registry" ? "bg-amber-400/20 text-amber-400" : "text-text-3 hover:text-text-2",
-              )}
-            >
-              <Database className="w-3 h-3" /> Live Registry
-            </button>
-          </div>
-          {/* Import OpenAPI — always visible; Add server — installed only */}
-          <div className="flex items-center gap-2">
-            {!showImport && (
-              <button
-                onClick={() => { setShowImport(true); setMcpView("installed"); setCreating(false); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-400/15 hover:bg-amber-400/25 text-amber-400 text-sm font-medium transition-colors"
-              >
-                <Zap className="w-3.5 h-3.5" />
-                Import OpenAPI
-              </button>
-            )}
-            {mcpView === "installed" && !creating && !showImport && (
-              <button
-                onClick={() => setCreating(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet/20 hover:bg-violet/35 text-violet text-sm font-medium transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Add server
-              </button>
-            )}
-          </div>
+          )}
         </div>
       </div>
 
-      {/* ── Live Registry view ───────────────────────────────────────── */}
-      {mcpView === "registry" && (
-        <LiveMcpRegistryView servers={servers} onAdd={addFromRegistry} />
-      )}
-
-      {/* ── Marketplace view ──────────────────────────────────────── */}
-      {mcpView === "marketplace" && (
-        <div className="space-y-5">
-          {/* Category filter chips */}
-          <div className="flex gap-2 flex-wrap">
-            {CATALOG_CATEGORIES.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => setCategoryFilter(cat)}
-                className={cn(
-                  "px-3 py-1 rounded-full text-xs font-medium border transition-colors",
-                  categoryFilter === cat
-                    ? "bg-violet/20 border-violet/40 text-violet"
-                    : "border-border text-text-3 hover:text-text-2 hover:border-white/20",
-                )}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-
-          {/* Card grid */}
-          <div className="grid grid-cols-2 gap-3">
-            <AnimatePresence mode="popLayout">
-              {filteredCatalog.map((item) => (
-                <CatalogCard
-                  key={item.id}
-                  item={item}
-                  installed={isInstalled(item)}
-                  onInstall={() => applyPreset(item)}
-                />
-              ))}
-            </AnimatePresence>
-          </div>
-        </div>
-      )}
-
-      {/* ── Installed view ────────────────────────────────────────── */}
-      {mcpView === "installed" && (
-        <div className="space-y-4">
+      <div className="space-y-4">
           {/* Create form */}
           <AnimatePresence>
             {creating && (
@@ -2043,7 +1718,7 @@ function McpServersTab() {
               <RefreshCw className="w-4 h-4 animate-spin" />Loading…
             </div>
           ) : servers.length === 0 && !creating ? (
-            <EmptyState message="No MCP servers installed. Browse the Marketplace to discover and add open-source servers." />
+            <EmptyState message="No MCP servers connected. Add a server by URL or import an OpenAPI spec." />
           ) : (
             <div className="space-y-2">
               {servers.map((s) => (
@@ -2172,18 +1847,6 @@ function McpServersTab() {
                                 : <ChevronRight className="w-3.5 h-3.5" />}
                             </button>
                           )}
-                          {s.runtime_mode === "dynamic" && (
-                            <button
-                              onClick={() => handleExport(s)}
-                              disabled={exportingId === s.id}
-                              title="Eject to code (download zip)"
-                              className="p-1.5 rounded-lg text-text-3 hover:text-violet hover:bg-violet/10 disabled:opacity-40 transition-colors"
-                            >
-                              {exportingId === s.id
-                                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                : <Code2 className="w-3.5 h-3.5" />}
-                            </button>
-                          )}
                           <button
                             onClick={() => startEdit(s)}
                             title="Edit"
@@ -2223,7 +1886,6 @@ function McpServersTab() {
             </div>
           )}
         </div>
-      )}
     </div>
   );
 }
@@ -2636,81 +2298,6 @@ function GoogleDrivePanel() {
   );
 }
 
-function CatalogCard({
-  item, installed, onInstall,
-}: {
-  item: McpCatalogItem;
-  installed: boolean;
-  onInstall: () => void;
-}) {
-  return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -4 }}
-      className="glass rounded-2xl p-4 flex flex-col gap-3"
-    >
-      {/* Top row */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-start gap-2.5 min-w-0">
-          <span className="text-xl shrink-0 mt-0.5">{item.icon}</span>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="text-sm font-semibold text-text-1">{item.name}</p>
-              {installed && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-400/10 text-emerald-400 border border-emerald-400/20 font-medium">
-                  Installed
-                </span>
-              )}
-            </div>
-            <span className={cn(
-              "inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded border font-medium",
-              CATEGORY_STYLES[item.category] ?? "bg-white/5 text-text-2 border-white/10",
-            )}>
-              {item.category}
-            </span>
-          </div>
-        </div>
-        <a
-          href={item.githubUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          title="View on GitHub"
-          className="text-text-3 hover:text-text-2 transition-colors shrink-0 mt-1"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <ExternalLink className="w-3.5 h-3.5" />
-        </a>
-      </div>
-
-      {/* Description */}
-      <p className="text-xs text-text-3 leading-relaxed flex-1">{item.description}</p>
-
-      {/* Bottom row */}
-      <div className="flex items-center justify-between pt-1">
-        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-text-3 font-mono">
-          {item.transport}
-        </span>
-        <button
-          onClick={onInstall}
-          disabled={installed}
-          className={cn(
-            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
-            installed
-              ? "text-emerald-400 cursor-default"
-              : "bg-violet/20 hover:bg-violet/35 text-violet",
-          )}
-        >
-          {installed
-            ? <><CheckCircle2 className="w-3 h-3" /> Installed</>
-            : <><Plus className="w-3 h-3" /> Install</>}
-        </button>
-      </div>
-    </motion.div>
-  );
-}
-
 // ── Open-source model library ─────────────────────────────────────────────
 
 function isModelInstalled(installedIds: string[], catalogId: string): boolean {
@@ -2946,282 +2533,6 @@ function ModelCatalogCard({
   );
 }
 
-
-// ── Hugging Face live catalog ──────────────────────────────────────────────
-
-function HFCatalogView() {
-  const { data: items = [], isLoading } = useSWR(
-    "catalog-items-model",
-    () => api.catalog.items("model", 200),
-    { refreshInterval: 60_000 },
-  );
-  const [q, setQ] = useState("");
-
-  const filtered = q.trim()
-    ? items.filter((item) => {
-        const name = ((item.payload.name as string) || "").toLowerCase();
-        const id   = ((item.payload.id   as string) || "").toLowerCase();
-        const s = q.trim().toLowerCase();
-        return name.includes(s) || id.includes(s);
-      })
-    : items;
-
-  return (
-    <div className="space-y-4">
-      <div className="glass rounded-2xl px-4 py-3 flex items-start gap-3 border border-amber-400/20">
-        <span className="text-amber-400 text-sm mt-0.5">ⓘ</span>
-        <p className="text-xs text-text-2 leading-relaxed">
-          Hugging Face models run locally via Ollama. Find a model below, then pull it from the <strong className="text-text-1">Open Source</strong> tab using its Ollama ID (e.g. <code className="font-mono bg-surface-2 px-1 rounded">hf.co/org/model</code>).
-        </p>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-3" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search Hugging Face models…"
-            className="w-full pl-9 pr-3 py-2 bg-surface-2 border border-border rounded-lg text-sm text-text-1 placeholder:text-text-3 outline-none focus:border-violet"
-          />
-        </div>
-        {!isLoading && (
-          <span className="text-xs text-text-3">
-            {filtered.length.toLocaleString()} model{filtered.length !== 1 ? "s" : ""}
-          </span>
-        )}
-      </div>
-
-      {isLoading ? (
-        <div className="flex items-center gap-2 text-text-3 text-sm">
-          <Loader2 className="w-4 h-4 animate-spin" /> Loading catalog…
-        </div>
-      ) : items.length === 0 ? (
-        <div className="glass rounded-2xl p-6 text-center space-y-2">
-          <p className="text-sm text-text-2">No models synced yet.</p>
-          <p className="text-xs text-text-3">
-            Go to <strong>Admin → Catalog Sources</strong> and trigger a sync for Hugging Face.
-          </p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-3">
-          <AnimatePresence mode="popLayout">
-            {filtered.slice(0, 100).map((item) => {
-              const p = item.payload;
-              return (
-                <motion.div
-                  key={item.id}
-                  layout
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -4 }}
-                  className="glass rounded-2xl p-4 flex flex-col gap-3"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-text-1 truncate">
-                        {(p.name as string) || (p.id as string)}
-                      </p>
-                      <p className="text-[10px] text-text-3 font-mono mt-0.5 truncate">{p.id as string}</p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-xs font-mono text-text-2">
-                        {((p.downloads as number) ?? 0).toLocaleString()}
-                      </p>
-                      <p className="text-[10px] text-text-3">↓</p>
-                    </div>
-                  </div>
-
-                  {Array.isArray(p.tags) && (p.tags as string[]).length > 0 && (
-                    <div className="flex gap-1 flex-wrap">
-                      {(p.tags as string[]).slice(0, 4).map((tag) => (
-                        <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-text-3">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-400/10 border border-amber-400/20 text-amber-400 font-medium">
-                      huggingface
-                    </span>
-                    <span className="text-[10px] text-text-3">Pull via Ollama</span>
-                  </div>
-                </motion.div>
-              );
-            })}
-          </AnimatePresence>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Live MCP registry ──────────────────────────────────────────────────────
-
-function LiveMcpRegistryView({
-  servers,
-  onAdd,
-}: {
-  servers: McpServer[];
-  onAdd: (name: string, url: string, desc: string) => void;
-}) {
-  const { data: items = [], isLoading } = useSWR(
-    "catalog-items-mcp",
-    () => api.catalog.items("mcp_server", 200),
-    { refreshInterval: 60_000 },
-  );
-  const [q, setQ] = useState("");
-  const [sourceFilter, setSourceFilter] = useState<"all" | "mcp_registry" | "pulsemcp">("all");
-
-  const filtered = items.filter((item) => {
-    if (sourceFilter !== "all" && item.payload.source !== sourceFilter) return false;
-    if (!q.trim()) return true;
-    const name = ((item.payload.name as string) || "").toLowerCase();
-    const desc = ((item.payload.description as string) || "").toLowerCase();
-    return name.includes(q.toLowerCase()) || desc.includes(q.toLowerCase());
-  });
-
-  const isInstalled = (item: CatalogItem) =>
-    servers.some(
-      (s) => s.name.toLowerCase() === ((item.payload.name as string) || "").toLowerCase(),
-    );
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-3" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search MCP servers…"
-            className="w-full pl-9 pr-3 py-2 bg-surface-2 border border-border rounded-lg text-sm text-text-1 placeholder:text-text-3 outline-none focus:border-violet"
-          />
-        </div>
-        <div className="flex items-center bg-surface-2 rounded-lg p-0.5 border border-border">
-          {(["all", "mcp_registry", "pulsemcp"] as const).map((src) => (
-            <button
-              key={src}
-              onClick={() => setSourceFilter(src)}
-              className={cn(
-                "px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
-                sourceFilter === src ? "bg-violet/20 text-violet" : "text-text-3 hover:text-text-2",
-              )}
-            >
-              {src === "all" ? "All" : src === "mcp_registry" ? "MCP Registry" : "PulseMCP"}
-            </button>
-          ))}
-        </div>
-        {!isLoading && (
-          <span className="text-xs text-text-3">
-            {filtered.length.toLocaleString()} server{filtered.length !== 1 ? "s" : ""}
-          </span>
-        )}
-      </div>
-
-      {isLoading ? (
-        <div className="flex items-center gap-2 text-text-3 text-sm">
-          <Loader2 className="w-4 h-4 animate-spin" /> Loading registry…
-        </div>
-      ) : items.length === 0 ? (
-        <div className="glass rounded-2xl p-6 text-center space-y-2">
-          <p className="text-sm text-text-2">No servers synced yet.</p>
-          <p className="text-xs text-text-3">
-            Go to <strong>Admin → Catalog Sources</strong> and trigger a sync for MCP Registry or PulseMCP.
-          </p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-3">
-          <AnimatePresence mode="popLayout">
-            {filtered.slice(0, 100).map((item) => {
-              const p = item.payload;
-              const installed = isInstalled(item);
-              const hasUrl = !!(p.url as string);
-              return (
-                <motion.div
-                  key={item.id}
-                  layout
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -4 }}
-                  className="glass rounded-2xl p-4 flex flex-col gap-3"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-semibold text-text-1">{p.name as string}</p>
-                        {installed && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-400/10 text-emerald-400 border border-emerald-400/20 font-medium">
-                            Installed
-                          </span>
-                        )}
-                      </div>
-                      <span className={cn(
-                        "inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded border font-medium",
-                        p.source === "pulsemcp"
-                          ? "bg-sky-400/10 text-sky-400 border-sky-400/20"
-                          : "bg-violet/10 text-violet border-violet/20",
-                      )}>
-                        {p.source as string}
-                      </span>
-                    </div>
-                    {hasUrl && (
-                      <a
-                        href={p.url as string}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-text-3 hover:text-text-2 transition-colors shrink-0 mt-1"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </a>
-                    )}
-                  </div>
-
-                  {(p.description as string | undefined) && (
-                    <p className="text-xs text-text-3 leading-relaxed line-clamp-3">
-                      {p.description as string}
-                    </p>
-                  )}
-
-                  <div className="flex items-center justify-between pt-1">
-                    <div className="flex gap-1 flex-wrap">
-                      {Array.isArray(p.tags) && (p.tags as string[]).slice(0, 2).map((tag) => (
-                        <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-text-3">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                    <button
-                      onClick={() => onAdd(
-                        (p.name as string) || "",
-                        (p.url  as string) || "",
-                        (p.description as string) || "",
-                      )}
-                      disabled={installed}
-                      className={cn(
-                        "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
-                        installed
-                          ? "text-emerald-400 cursor-default"
-                          : "bg-violet/20 hover:bg-violet/35 text-violet",
-                      )}
-                    >
-                      {installed
-                        ? <><CheckCircle2 className="w-3 h-3" /> Installed</>
-                        : <><Plus className="w-3 h-3" /> Add</>}
-                    </button>
-                  </div>
-                </motion.div>
-              );
-            })}
-          </AnimatePresence>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function OllamaLibraryView({ models, mutate }: { models: AiModel[]; mutate: () => void }) {
   const [categoryFilter, setCategoryFilter] = useState("All");

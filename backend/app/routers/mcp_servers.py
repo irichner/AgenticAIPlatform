@@ -1,8 +1,6 @@
 from __future__ import annotations
-from datetime import datetime, timezone
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -119,41 +117,6 @@ async def delete_mcp_server(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP server not found")
     await db.delete(server)
     await db.commit()
-
-
-# ── Code generation (Phase 2) ─────────────────────────────────────────────────
-
-@router.post("/{server_id}/export", status_code=status.HTTP_200_OK)
-async def export_server_code(
-    server_id: UUID,
-    org_id: UUID = Depends(resolve_org),
-    db: AsyncSession = Depends(get_db),
-):
-    """Generate and return a downloadable zip of a stand-alone Python MCP project."""
-    result = await db.execute(
-        select(McpServer).options(_with_tools()).where(McpServer.id == server_id, McpServer.org_id == org_id)
-    )
-    server = result.scalar_one_or_none()
-    if server is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP server not found")
-    if server.runtime_mode != "dynamic":
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Only dynamic servers can be exported to code.",
-        )
-
-    from app.services.codegen import generate_project_zip
-    zip_bytes = generate_project_zip(server)
-
-    server.last_generated_at = datetime.now(timezone.utc)
-    await db.commit()
-
-    filename = f"mcp-{server.slug or server_id}.zip"
-    return Response(
-        content=zip_bytes,
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
 
 
 # ── Tool sub-resources ────────────────────────────────────────────────────────

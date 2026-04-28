@@ -17,6 +17,8 @@ class Org(Base):
     slug: Mapped[str] = mapped_column(String(63), unique=True, nullable=False)
     logo_url: Mapped[str | None] = mapped_column(Text(), nullable=True)
     sso_enforced: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    mcp_gateway_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("FALSE"))
+    mcp_guardrail_prompt_additions: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

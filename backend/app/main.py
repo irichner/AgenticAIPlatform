@@ -8,7 +8,6 @@ import os
 load_dotenv()
 
 _SYNC_INTERVAL_SECONDS = int(os.getenv("PROVIDER_SYNC_INTERVAL", str(86_400)))  # 24 h
-_CATALOG_POLL_SECONDS  = int(os.getenv("CATALOG_SYNC_POLL",     str(3_600)))   # 1 h
 
 
 async def _daily_provider_sync():
@@ -23,20 +22,6 @@ async def _daily_provider_sync():
         except Exception:
             pass
         await asyncio.sleep(_SYNC_INTERVAL_SECONDS)
-
-
-async def _catalog_sync_loop():
-    """Background task: poll enabled catalog sources on their individual intervals."""
-    from app.db.engine import AsyncSessionLocal as db_session
-    from app.services.catalog_sync import sync_all_sources
-    await asyncio.sleep(90)  # stagger after provider sync
-    while True:
-        try:
-            async with db_session() as db:
-                await sync_all_sources(db)
-        except Exception:
-            pass
-        await asyncio.sleep(_CATALOG_POLL_SECONDS)
 
 
 async def _ollama_warmup():
@@ -71,15 +56,17 @@ async def _ollama_warmup():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.core.checkpointer import get_checkpointer
+    from app.mcp_gateway.sweeper import run_sweeper_loop
+
     app.state.checkpointer = await get_checkpointer()
     task_provider = asyncio.create_task(_daily_provider_sync())
-    task_catalog  = asyncio.create_task(_catalog_sync_loop())
     task_warmup   = asyncio.create_task(_ollama_warmup())
+    task_sweeper  = asyncio.create_task(run_sweeper_loop())
     yield
     task_provider.cancel()
-    task_catalog.cancel()
     task_warmup.cancel()
-    for t in (task_provider, task_catalog, task_warmup):
+    task_sweeper.cancel()
+    for t in (task_provider, task_warmup, task_sweeper):
         try:
             await t
         except asyncio.CancelledError:
@@ -122,14 +109,13 @@ from app.routers.config import router as config_router
 from app.routers.integrations import router as integrations_router
 from app.routers.workflows import router as workflows_router
 from app.routers.workflow_runs import router as workflow_runs_router
-from app.routers.catalog import admin_router as catalog_admin_router
-from app.routers.catalog import catalog_router
 from app.routers.auth import router as auth_router
 from app.routers.orgs import router as orgs_router
 from app.routers.tenants import router as tenants_router
 from app.routers.roles import router as roles_router
 from app.routers.audit import router as audit_router
 from app.routers.sso import router as sso_router, auth_router as sso_auth_router
+from app.mcp_gateway.router import router as mcp_gateway_router
 
 app.include_router(health_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
@@ -155,9 +141,7 @@ app.include_router(config_router, prefix="/api")
 app.include_router(integrations_router, prefix="/api")
 app.include_router(workflows_router, prefix="/api")
 app.include_router(workflow_runs_router, prefix="/api")
-app.include_router(catalog_admin_router, prefix="/api")
-app.include_router(catalog_router, prefix="/api")
-
+app.include_router(mcp_gateway_router, prefix="/api")
 
 @app.get("/")
 async def root():

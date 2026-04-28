@@ -91,7 +91,7 @@ async def execute_run(run_id: str) -> None:
                     "chunks_found": rag_context.count("["),
                 }))
 
-            tools = await get_mcp_tools()
+            tools = await get_mcp_tools(agent.mcp_servers or [])
 
             from app.core.checkpointer import get_checkpointer
             checkpointer = await get_checkpointer()
@@ -250,7 +250,7 @@ async def execute_run_resume(
 
         try:
             llm = await get_active_llm(db)
-            tools = await get_mcp_tools()
+            tools = await get_mcp_tools(agent.mcp_servers or [])
 
             agent_type = None
             if version and version.graph_definition:

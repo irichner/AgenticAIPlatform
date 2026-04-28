@@ -1,8 +1,7 @@
 from __future__ import annotations
-from datetime import datetime
 from typing import TYPE_CHECKING
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import String, Text, Boolean, DateTime, ForeignKey, text
+from sqlalchemy import String, Text, Boolean, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
 import uuid
 from app.models.base import Base, TimestampMixin
@@ -26,17 +25,11 @@ class McpServer(Base, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("TRUE"))
 
-    # Dynamic registry fields
     runtime_mode: Mapped[str] = mapped_column(String(32), nullable=False, server_default="external")
     slug: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True)
     base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     openapi_spec: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     auth_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-
-    # Code-gen fields (Phase 2)
-    last_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    generation_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    source_repo: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     tools: Mapped[list["McpTool"]] = relationship(
         "McpTool", back_populates="server", cascade="all, delete-orphan", lazy="select"
