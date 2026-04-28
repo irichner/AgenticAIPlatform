@@ -174,6 +174,11 @@ async def list_ai_models(db: AsyncSession = Depends(get_db)):
 
 @router.post("", response_model=AiModelOut, status_code=status.HTTP_201_CREATED)
 async def create_ai_model(payload: AiModelCreate, db: AsyncSession = Depends(get_db)):
+    if payload.type != "local":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="API models are managed automatically. Connect a provider via Admin → AI → Providers.",
+        )
     model = AiModel(**payload.model_dump())
     db.add(model)
     await db.commit()
@@ -214,7 +219,7 @@ async def delete_ai_model(
         ollama_url = (model.base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")).rstrip("/")
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.delete(f"{ollama_url}/api/delete", json={"name": model.model_id})
+                resp = await client.request("DELETE", f"{ollama_url}/api/delete", json={"name": model.model_id})
                 if resp.status_code not in (200, 404):
                     resp.raise_for_status()
         except httpx.TimeoutException:

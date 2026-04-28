@@ -13,15 +13,18 @@ from app.dependencies import get_db
 from app.models.agent import Agent, AgentVersion
 from app.models.business_unit import BusinessUnit
 from app.models.mcp_server import McpServer
+from app.models.mcp_tool import McpTool
 from app.schemas.agent import AgentCreate, AgentUpdate, AgentOut, AgentVersionOut
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
 
 async def _load_agent(db: AsyncSession, agent_id: UUID) -> Agent | None:
-    """Fetch agent with mcp_servers relationship eagerly loaded."""
+    """Fetch agent with mcp_servers and their tools eagerly loaded."""
     result = await db.execute(
-        select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.mcp_servers))
+        select(Agent)
+        .where(Agent.id == agent_id)
+        .options(selectinload(Agent.mcp_servers).selectinload(McpServer.tools))
     )
     return result.scalar_one_or_none()
 
@@ -31,7 +34,7 @@ async def list_agents(
     business_unit_id: UUID | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(Agent).options(selectinload(Agent.mcp_servers))
+    stmt = select(Agent).options(selectinload(Agent.mcp_servers).selectinload(McpServer.tools))
     if business_unit_id:
         stmt = stmt.where(Agent.business_unit_id == business_unit_id)
     result = await db.execute(stmt.order_by(Agent.name))
@@ -132,7 +135,9 @@ async def update_agent(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Agent).where(Agent.id == agent_id).options(selectinload(Agent.mcp_servers))
+        select(Agent)
+        .where(Agent.id == agent_id)
+        .options(selectinload(Agent.mcp_servers).selectinload(McpServer.tools))
     )
     agent = result.scalar_one_or_none()
     if agent is None:

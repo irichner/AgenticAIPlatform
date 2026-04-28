@@ -1304,7 +1304,7 @@ function AiModelsTab() {
       {aiView === "library"   && <OllamaLibraryView models={models} mutate={mutateModels} />}
       {aiView === "providers" && <ProvidersView providers={providers} mutate={mutateProviders} mutateModels={mutateModels} />}
       {aiView === "models"    && <ModelsView models={models} mutate={mutateModels} loading={isLoading} />}
-      {aiView === "hf"        && <HFCatalogView models={models} mutate={mutateModels} />}
+      {aiView === "hf"        && <HFCatalogView />}
     </div>
   );
 }
@@ -2944,14 +2944,13 @@ function ModelCatalogCard({
 
 // ── Hugging Face live catalog ──────────────────────────────────────────────
 
-function HFCatalogView({ models, mutate }: { models: AiModel[]; mutate: () => void }) {
+function HFCatalogView() {
   const { data: items = [], isLoading } = useSWR(
     "catalog-items-model",
     () => api.catalog.items("model", 200),
     { refreshInterval: 60_000 },
   );
   const [q, setQ] = useState("");
-  const [adding, setAdding] = useState<Record<string, boolean>>({});
 
   const filtered = q.trim()
     ? items.filter((item) => {
@@ -2962,30 +2961,15 @@ function HFCatalogView({ models, mutate }: { models: AiModel[]; mutate: () => vo
       })
     : items;
 
-  const isAdded = (item: CatalogItem) =>
-    models.some((m) => m.model_id === (item.payload.id as string));
-
-  const handleAdd = async (item: CatalogItem) => {
-    const p = item.payload;
-    const modelId = p.id as string;
-    setAdding((prev) => ({ ...prev, [item.id]: true }));
-    try {
-      await api.aiModels.create({
-        name: (p.name as string) || modelId,
-        type: "api",
-        provider: "Hugging Face",
-        model_id: modelId,
-        description: `From Hugging Face. Downloads: ${((p.downloads as number) ?? 0).toLocaleString()}`,
-        enabled: false,
-      });
-      mutate();
-    } catch { /* already exists — silently ignore */ } finally {
-      setAdding((prev) => ({ ...prev, [item.id]: false }));
-    }
-  };
-
   return (
     <div className="space-y-4">
+      <div className="glass rounded-2xl px-4 py-3 flex items-start gap-3 border border-amber-400/20">
+        <span className="text-amber-400 text-sm mt-0.5">ⓘ</span>
+        <p className="text-xs text-text-2 leading-relaxed">
+          Hugging Face models run locally via Ollama. Find a model below, then pull it from the <strong className="text-text-1">Open Source</strong> tab using its Ollama ID (e.g. <code className="font-mono bg-surface-2 px-1 rounded">hf.co/org/model</code>).
+        </p>
+      </div>
+
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-3" />
@@ -3019,7 +3003,6 @@ function HFCatalogView({ models, mutate }: { models: AiModel[]; mutate: () => vo
           <AnimatePresence mode="popLayout">
             {filtered.slice(0, 100).map((item) => {
               const p = item.payload;
-              const added = isAdded(item);
               return (
                 <motion.div
                   key={item.id}
@@ -3031,16 +3014,9 @@ function HFCatalogView({ models, mutate }: { models: AiModel[]; mutate: () => vo
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-semibold text-text-1 truncate">
-                          {(p.name as string) || (p.id as string)}
-                        </p>
-                        {added && (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-400/10 text-emerald-400 border border-emerald-400/20 font-medium shrink-0">
-                            Added
-                          </span>
-                        )}
-                      </div>
+                      <p className="text-sm font-semibold text-text-1 truncate">
+                        {(p.name as string) || (p.id as string)}
+                      </p>
                       <p className="text-[10px] text-text-3 font-mono mt-0.5 truncate">{p.id as string}</p>
                     </div>
                     <div className="text-right shrink-0">
@@ -3065,24 +3041,7 @@ function HFCatalogView({ models, mutate }: { models: AiModel[]; mutate: () => vo
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-400/10 border border-amber-400/20 text-amber-400 font-medium">
                       huggingface
                     </span>
-                    <button
-                      onClick={() => handleAdd(item)}
-                      disabled={added || adding[item.id]}
-                      className={cn(
-                        "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
-                        added
-                          ? "text-emerald-400 cursor-default"
-                          : adding[item.id]
-                          ? "opacity-50 cursor-not-allowed text-violet"
-                          : "bg-violet/20 hover:bg-violet/35 text-violet",
-                      )}
-                    >
-                      {added
-                        ? <><CheckCircle2 className="w-3 h-3" /> Added</>
-                        : adding[item.id]
-                        ? <><Loader2 className="w-3 h-3 animate-spin" /> Adding…</>
-                        : <><Plus className="w-3 h-3" /> Add model</>}
-                    </button>
+                    <span className="text-[10px] text-text-3">Pull via Ollama</span>
                   </div>
                 </motion.div>
               );

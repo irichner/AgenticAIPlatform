@@ -17,6 +17,7 @@ import {
   X,
   MessageSquare,
   MessagesSquare,
+  Sparkles,
   Plus,
   Trash2,
   LogOut,
@@ -28,16 +29,17 @@ import { useBranding } from "@/components/shared/BrandingProvider";
 import { useAuth } from "@/contexts/auth";
 import { api } from "@/lib/api";
 
-type CreateAction = "dept" | "agent" | "workflow" | null;
+type CreateAction = "dept" | "agent" | "workflow" | "chat" | null;
 
 const navItems: { href: string; label: string; icon: React.ElementType; createAction: CreateAction }[] = [
+  { href: "/assistant",   label: "Assistant",    icon: Sparkles,        createAction: "chat"     },
   { href: "/dashboard",   label: "Dashboard",    icon: House,           createAction: null       },
   { href: "/swarms",      label: "Swarms",       icon: LayoutGrid,      createAction: "dept"     },
   { href: "/canvas",      label: "Agents",       icon: Workflow,        createAction: "agent"    },
   { href: "/workflow",    label: "Workflows",    icon: GitBranch,       createAction: "workflow" },
-  { href: "/chat",        label: "Chat",         icon: MessagesSquare,  createAction: null   },
-  { href: "/approvals",   label: "Approvals",    icon: ShieldCheck,     createAction: null   },
-  { href: "/admin",       label: "Admin",        icon: Settings2,       createAction: null   },
+  { href: "/chat",        label: "Chat",         icon: MessagesSquare,  createAction: null       },
+  { href: "/approvals",   label: "Approvals",    icon: ShieldCheck,     createAction: null       },
+  { href: "/admin",       label: "Admin",        icon: Settings2,       createAction: null       },
 ];
 
 export function Sidebar() {
@@ -91,9 +93,9 @@ export function Sidebar() {
   };
 
   // ── New chat ───────────────────────────────────────────────────────────────
-  const handleLanaraClick = () => {
+  const handleNewChat = () => {
     startNewChat();
-    if (pathname !== "/") router.push("/");
+    if (pathname !== "/assistant") router.push("/assistant");
   };
 
   return (
@@ -103,13 +105,9 @@ export function Sidebar() {
         collapsed ? "w-14" : "w-56",
       )}
     >
-      {/* Logo / new-chat */}
+      {/* Logo */}
       <div className="flex items-center gap-2.5 px-3 h-14 border-b border-border shrink-0">
-        <button
-          onClick={handleLanaraClick}
-          title="New chat"
-          className="flex items-center gap-2.5 flex-1 min-w-0 text-left hover:opacity-80 transition-opacity"
-        >
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet to-cyan flex items-center justify-center shrink-0 overflow-hidden">
             {appIcon
               ? <img src={appIcon} alt="" className="w-full h-full object-cover" />
@@ -119,7 +117,7 @@ export function Sidebar() {
           {!collapsed && (
             <span className="font-semibold text-text-1 text-sm tracking-tight truncate">{appName}</span>
           )}
-        </button>
+        </div>
         <button
           onClick={() => setCollapsed((c) => !c)}
           className="shrink-0 text-text-3 hover:text-text-2 transition-colors"
@@ -149,11 +147,16 @@ export function Sidebar() {
               {createAction && !collapsed && (
                 <button
                   onClick={() => {
+                    if (createAction === "chat") handleNewChat();
                     if (createAction === "dept") setCreatingDept((v) => !v);
                     if (createAction === "agent") router.push("/canvas?new=true");
                     if (createAction === "workflow") router.push("/workflow?new=true");
                   }}
-                  title={createAction === "dept" ? "New swarm" : createAction === "agent" ? "New agent" : "New workflow"}
+                  title={
+                    createAction === "chat" ? "New chat" :
+                    createAction === "dept" ? "New swarm" :
+                    createAction === "agent" ? "New agent" : "New workflow"
+                  }
                   className="p-1.5 rounded-lg text-text-3 hover:text-text-1 hover:bg-surface-2 transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -208,7 +211,7 @@ export function Sidebar() {
               {threads.map((thread) => (
                 <div key={thread.id} className="group flex items-center gap-0.5">
                   <button
-                    onClick={() => { loadThread(thread.id); if (pathname !== "/") router.push("/"); }}
+                    onClick={() => { loadThread(thread.id); if (pathname !== "/assistant") router.push("/assistant"); }}
                     className={cn(
                       "flex-1 text-left px-2.5 py-1.5 rounded-lg text-xs transition-colors truncate",
                       activeThreadId === thread.id

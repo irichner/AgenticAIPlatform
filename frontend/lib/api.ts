@@ -483,25 +483,38 @@ export const api = {
     onDone: () => void,
     onError: (err: string) => void,
     modelId?: string,
+    appName?: string,
+    timeoutMs = 120_000,
   ): Promise<void> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const abort = (msg = "Request timed out — the model took too long to respond.") => {
+      clearTimeout(timer);
+      onError(msg);
+    };
+
     let res: Response;
     try {
       res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, history, model_id: modelId ?? null }),
+        body: JSON.stringify({ message, history, model_id: modelId ?? null, app_name: appName ?? null }),
+        signal: controller.signal,
       });
     } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") { abort(); return; }
+      clearTimeout(timer);
       onError(String(e));
       return;
     }
     if (!res.ok) {
+      clearTimeout(timer);
       const text = await res.text().catch(() => res.statusText);
       onError(`${res.status}: ${text}`);
       return;
     }
     const reader = res.body?.getReader();
-    if (!reader) { onError("No response body"); return; }
+    if (!reader) { clearTimeout(timer); onError("No response body"); return; }
     const decoder = new TextDecoder();
     let buf = "";
     try {
@@ -514,17 +527,29 @@ export const api = {
         for (const line of lines) {
           if (!line.startsWith("data: ")) continue;
           const data = line.slice(6).trim();
-          if (data === "[DONE]") { onDone(); return; }
+          if (data === "[DONE]") {
+            clearTimeout(timer);
+            // Delay so React renders the final streaming state (thinking bubble /
+            // streaming content) at least once before cleanup fires.
+            setTimeout(onDone, 0);
+            return;
+          }
           try {
             const parsed = JSON.parse(data);
-            if (parsed.error) { onError(parsed.error); return; }
+            if (parsed.error) { clearTimeout(timer); onError(parsed.error); return; }
             if (parsed.content) onChunk(parsed.content);
           } catch { /* skip malformed */ }
         }
       }
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") { abort(); return; }
+      clearTimeout(timer);
+      onError(String(e));
+      return;
     } finally {
       reader.releaseLock();
     }
+    clearTimeout(timer);
     onDone();
   },
 

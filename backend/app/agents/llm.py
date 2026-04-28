@@ -60,6 +60,13 @@ def build_llm(model: AiModel, provider_api_key: str | None = None):
             kwargs["api_key"] = api_key
         return ChatAnthropic(**kwargs)
 
+    if provider == "xai":
+        from langchain_xai import ChatXAI
+        kwargs = {"model": model_id}
+        if api_key:
+            kwargs["xai_api_key"] = api_key
+        return ChatXAI(**kwargs)
+
     # All other providers use OpenAI-compatible interface
     from langchain_openai import ChatOpenAI
 

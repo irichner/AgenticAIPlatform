@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { Workflow, Bot, ChevronRight, Plus, Trash2, Layers, Check, X, AlertTriangle } from "lucide-react";
+import { Bot, Trash2, Layers, Check, X, AlertTriangle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/cn";
 import type { BusinessUnit, Agent, AgentGroup } from "@/lib/api";
@@ -86,16 +86,6 @@ export function UnitCard({
           )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <Link
-            href={`/canvas?unit=${unit.id}`}
-            className={cn(
-              "flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors",
-              "bg-surface-2 hover:bg-surface-1 text-text-2 hover:text-text-1"
-            )}
-          >
-            <Workflow className="w-3 h-3" />
-            Canvas
-          </Link>
           {confirmDelete ? (
             <div className="flex items-center gap-1">
               <span className="text-xs text-rose-400 flex items-center gap-0.5">
@@ -237,32 +227,6 @@ export function UnitCard({
         </AnimatePresence>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between mt-auto pt-1 border-t border-border">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setAddingGroup(true)}
-            className="flex items-center gap-1 text-xs text-text-3 hover:text-text-2 transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            New swarm
-          </button>
-          <button
-            onClick={() => onCreateAgent(unit.id)}
-            className="flex items-center gap-1 text-xs text-text-3 hover:text-text-2 transition-colors"
-          >
-            <Bot className="w-3.5 h-3.5" />
-            Add agent
-          </button>
-        </div>
-        <Link
-          href={`/canvas?unit=${unit.id}`}
-          className={cn("flex items-center gap-0.5 text-xs transition-colors", accent.text)}
-        >
-          Open canvas
-          <ChevronRight className="w-3.5 h-3.5" />
-        </Link>
-      </div>
     </motion.div>
   );
 }
