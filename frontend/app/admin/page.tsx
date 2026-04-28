@@ -14,7 +14,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { api, type BusinessUnit, type Document, type SearchResult, type McpServer, type McpTool, type AiModel, type ApiProvider, type CatalogItem } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { useBranding } from "@/components/shared/BrandingProvider";
+import { useAuth } from "@/contexts/auth";
+import { removeOrgItem } from "@/lib/org-storage";
 import { CatalogSourcesTab } from "@/components/admin/CatalogSourcesTab";
 import { MembersTab } from "@/components/admin/MembersTab";
 import { RolesTab } from "@/components/admin/RolesTab";
@@ -41,9 +42,9 @@ const SUB_TABS: Record<GroupId, { id: string; label: string }[]> = {
   ],
   knowledge: [],
   settings: [
-    { id: "branding",  label: "Branding" },
-    { id: "platform",  label: "Platform" },
-    { id: "org",       label: "Organization" },
+    { id: "org",        label: "Organization" },
+    { id: "workspaces", label: "Workspaces" },
+    { id: "platform",   label: "Platform" },
   ],
   team: [
     { id: "members", label: "Members" },
@@ -59,7 +60,7 @@ const SUB_TABS: Record<GroupId, { id: string; label: string }[]> = {
 const DEFAULT_SUB: Record<GroupId, string> = {
   intelligence: "ai",
   knowledge:    "",
-  settings:     "branding",
+  settings:     "org",
   team:         "members",
   security:     "sso",
 };
@@ -69,9 +70,9 @@ const TAB_PARAM_MAP: Record<string, { group: GroupId; sub: string }> = {
   mcp:          { group: "intelligence", sub: "mcp" },
   catalog:      { group: "intelligence", sub: "catalog" },
   knowledge:    { group: "knowledge",    sub: "" },
-  branding:     { group: "settings",     sub: "branding" },
   settings:     { group: "settings",     sub: "platform" },
   org:          { group: "settings",     sub: "org" },
+  workspaces:   { group: "settings",     sub: "workspaces" },
   members:      { group: "team",         sub: "members" },
   roles:        { group: "team",         sub: "roles" },
   sso:          { group: "security",     sub: "sso" },
@@ -159,9 +160,9 @@ function AdminPageInner() {
           {activeGroup === "intelligence" && activeSubTab === "mcp"      && <div className="p-6"><McpServersTab /></div>}
           {activeGroup === "intelligence" && activeSubTab === "catalog"  && <div className="p-6"><CatalogSourcesTab /></div>}
           {activeGroup === "knowledge"                                   && <div className="p-6"><KnowledgeSourcesTab /></div>}
-          {activeGroup === "settings"     && activeSubTab === "branding" && <div className="p-6"><BrandingTab /></div>}
-          {activeGroup === "settings"     && activeSubTab === "platform" && <div className="p-6"><SettingsTab /></div>}
-          {activeGroup === "settings"     && activeSubTab === "org"      && <OrgSettingsTab />}
+          {activeGroup === "settings"     && activeSubTab === "org"        && <OrgSettingsTab />}
+          {activeGroup === "settings"     && activeSubTab === "workspaces" && <div className="p-6"><WorkspacesTab /></div>}
+          {activeGroup === "settings"     && activeSubTab === "platform"   && <div className="p-6"><SettingsTab /></div>}
           {activeGroup === "team"         && activeSubTab === "members"  && <MembersTab />}
           {activeGroup === "team"         && activeSubTab === "roles"    && <RolesTab />}
           {activeGroup === "security"     && activeSubTab === "sso"      && <SsoTab />}
@@ -180,9 +181,10 @@ function KnowledgeSourcesTab() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { currentOrg: knowledgeOrg } = useAuth();
 
   const { data: units = [] } = useSWR(
-    "business-units-admin",
+    knowledgeOrg ? ["business-units-admin", knowledgeOrg.id] : null,
     () => api.businessUnits.list(),
   );
 
@@ -1236,8 +1238,10 @@ function ModelsView({ models, mutate, loading }: { models: AiModel[]; mutate: ()
 }
 
 function AiModelsTab() {
-  const { data: models = [], mutate: mutateModels, isLoading } = useSWR("ai-models", () => api.aiModels.list());
-  const { data: providers = [], mutate: mutateProviders } = useSWR("api-providers", () => api.apiProviders.list());
+  const { currentOrg: aiOrg } = useAuth();
+  const aiOrgKey = aiOrg?.id ?? null;
+  const { data: models = [], mutate: mutateModels, isLoading } = useSWR(aiOrgKey ? ["ai-models", aiOrgKey] : null, () => api.aiModels.list());
+  const { data: providers = [], mutate: mutateProviders } = useSWR(aiOrgKey ? ["api-providers", aiOrgKey] : null, () => api.apiProviders.list());
 
   const [aiView, setAiView] = useState<"library" | "providers" | "models" | "hf">("providers");
 
@@ -1309,146 +1313,146 @@ function AiModelsTab() {
   );
 }
 
-function BrandingTab() {
-  const { appName, appIcon, setAppName, setAppIcon } = useBranding();
-  const [nameInput, setNameInput] = useState(appName);
-  const [nameSaved, setNameSaved] = useState(false);
-  const [iconError, setIconError] = useState<string | null>(null);
-  const iconInputRef = useRef<HTMLInputElement>(null);
+function WorkspacesTab() {
+  const { currentOrg } = useAuth();
+  const orgId = currentOrg?.id ?? "";
 
-  const handleNameSave = () => {
-    setAppName(nameInput.trim() || appName);
-    setNameSaved(true);
-    setTimeout(() => setNameSaved(false), 2000);
-  };
+  const { data: tenants = [], mutate, isLoading } = useSWR(
+    orgId ? ["tenants", orgId] : null,
+    () => api.orgs.tenants.list(orgId),
+  );
 
-  const handleIconUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setIconError(null);
-    if (!file.type.startsWith("image/")) {
-      setIconError("Please upload an image file.");
-      return;
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName]   = useState("");
+  const [creating, setCreating]   = useState(false);
+  const [newName, setNewName]     = useState("");
+  const [saving, setSaving]       = useState(false);
+
+  function toSlug(v: string) {
+    return v.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 63);
+  }
+
+  async function handleRename(tenantId: string) {
+    if (!editName.trim()) return;
+    setSaving(true);
+    try {
+      await api.orgs.tenants.update(orgId, tenantId, { name: editName.trim() });
+      await mutate();
+      setEditingId(null);
+    } finally {
+      setSaving(false);
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setIconError("Image must be under 2 MB.");
-      return;
+  }
+
+  async function handleCreate() {
+    if (!newName.trim()) return;
+    setSaving(true);
+    try {
+      await api.orgs.tenants.create(orgId, { name: newName.trim(), slug: toSlug(newName) });
+      await mutate();
+      setNewName("");
+      setCreating(false);
+    } finally {
+      setSaving(false);
     }
-    const reader = new FileReader();
-    reader.onload = () => setAppIcon(reader.result as string);
-    reader.readAsDataURL(file);
-    e.target.value = "";
-  };
+  }
+
+  if (!orgId) return <p className="text-sm text-text-3">No org selected.</p>;
 
   return (
-    <div className="max-w-2xl space-y-8">
-      {/* App name */}
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-sm font-semibold text-text-1">Application Name</h2>
-          <p className="text-xs text-text-3 mt-0.5">Displayed in the sidebar header.</p>
+    <div className="max-w-lg space-y-6">
+      <div>
+        <h3 className="text-sm font-semibold text-text-1">Workspaces</h3>
+        <p className="text-xs text-text-3 mt-0.5">
+          Each workspace is an isolated data environment. Agents, documents, and quota data are scoped per workspace.
+        </p>
+      </div>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-sm text-text-3">
+          <Loader2 size={14} className="animate-spin" /> Loading…
         </div>
-        <div className="glass rounded-2xl p-4 space-y-3">
+      ) : (
+        <ul className="space-y-2">
+          {tenants.map((t) => (
+            <li key={t.id} className="flex items-center gap-2 rounded-xl border border-border bg-surface-1 px-4 py-3">
+              {editingId === t.id ? (
+                <>
+                  <input
+                    autoFocus
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleRename(t.id); if (e.key === "Escape") setEditingId(null); }}
+                    className="flex-1 rounded-lg border border-border bg-surface-0 px-3 py-1.5 text-sm
+                               text-text-1 focus:outline-none focus:ring-2 focus:ring-violet/50"
+                  />
+                  <button
+                    onClick={() => handleRename(t.id)}
+                    disabled={saving}
+                    className="rounded-lg bg-violet px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                  >
+                    {saving ? <Loader2 size={12} className="animate-spin" /> : <Check size={14} />}
+                  </button>
+                  <button onClick={() => setEditingId(null)} className="text-text-3 hover:text-text-2">
+                    <X size={14} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-text-1 font-medium truncate">{t.name}</p>
+                    <p className="text-xs text-text-3 font-mono">{t.slug}</p>
+                  </div>
+                  <button
+                    onClick={() => { setEditingId(t.id); setEditName(t.name); }}
+                    className="text-text-3 hover:text-text-2 transition-colors"
+                    aria-label="Rename workspace"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {creating ? (
+        <div className="flex items-center gap-2">
           <input
-            type="text"
-            value={nameInput}
-            onChange={(e) => setNameInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleNameSave()}
-            placeholder="Ask Lanara"
-            className="w-full bg-surface-2 border border-border rounded-lg px-3 py-2 text-sm text-text-1 placeholder:text-text-3 outline-none focus:border-violet/50 transition-colors"
+            autoFocus
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") setCreating(false); }}
+            placeholder="Workspace name"
+            className="flex-1 rounded-lg border border-border bg-surface-0 px-3 py-1.5 text-sm
+                       text-text-1 focus:outline-none focus:ring-2 focus:ring-violet/50"
           />
           <button
-            onClick={handleNameSave}
-            disabled={!nameInput.trim() || nameInput.trim() === appName}
-            className={cn(
-              "px-4 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5",
-              nameSaved
-                ? "bg-emerald-400/15 text-emerald-400 border border-emerald-400/30"
-                : "bg-violet/15 text-violet border border-violet/30 hover:bg-violet/25 disabled:opacity-40 disabled:cursor-not-allowed",
-            )}
+            onClick={handleCreate}
+            disabled={!newName.trim() || saving}
+            className="rounded-lg bg-violet px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
           >
-            {nameSaved ? <><Check className="w-3 h-3" /> Saved</> : "Save"}
+            {saving ? <Loader2 size={12} className="animate-spin" /> : "Create"}
+          </button>
+          <button onClick={() => { setCreating(false); setNewName(""); }} className="text-text-3 hover:text-text-2">
+            <X size={14} />
           </button>
         </div>
-      </section>
-
-      {/* App icon */}
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-sm font-semibold text-text-1">Application Icon</h2>
-          <p className="text-xs text-text-3 mt-0.5">Shown next to the app name in the sidebar. PNG, JPG, or SVG — max 2 MB.</p>
-        </div>
-        <div className="glass rounded-2xl p-4 space-y-4">
-          {/* Preview */}
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet to-cyan flex items-center justify-center overflow-hidden shrink-0">
-              {appIcon
-                ? <img src={appIcon} alt="App icon" className="w-full h-full object-cover" />
-                : <span className="text-lg font-black text-white">L</span>
-              }
-            </div>
-            <div className="text-xs text-text-3">
-              {appIcon ? "Custom icon active" : "Default icon (gradient L)"}
-            </div>
-          </div>
-
-          {iconError && (
-            <p className="text-xs text-rose-400 flex items-center gap-1.5">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {iconError}
-            </p>
-          )}
-
-          <div className="flex items-center gap-2">
-            <input
-              ref={iconInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleIconUpload}
-            />
-            <button
-              onClick={() => iconInputRef.current?.click()}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-violet/15 text-violet border border-violet/30 hover:bg-violet/25 transition-colors"
-            >
-              <Upload className="w-3.5 h-3.5" /> Upload image
-            </button>
-            {appIcon && (
-              <button
-                onClick={() => setAppIcon(null)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-text-3 border border-border hover:text-text-1 hover:border-white/20 transition-colors"
-              >
-                <X className="w-3.5 h-3.5" /> Remove
-              </button>
-            )}
-          </div>
-        </div>
-      </section>
-
-      {/* Live preview */}
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-sm font-semibold text-text-1">Preview</h2>
-          <p className="text-xs text-text-3 mt-0.5">How the sidebar header will look.</p>
-        </div>
-        <div className="glass rounded-2xl p-4">
-          <div className="flex items-center gap-2.5 w-fit">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet to-cyan flex items-center justify-center shrink-0 overflow-hidden">
-              {appIcon
-                ? <img src={appIcon} alt="" className="w-full h-full object-cover" />
-                : <span className="text-xs font-black text-white">L</span>
-              }
-            </div>
-            <span className="font-semibold text-text-1 text-sm tracking-tight">
-              {nameInput.trim() || appName}
-            </span>
-          </div>
-        </div>
-      </section>
+      ) : (
+        <button
+          onClick={() => setCreating(true)}
+          className="flex items-center gap-1.5 text-sm text-violet hover:underline"
+        >
+          <Plus size={14} /> Add workspace
+        </button>
+      )}
     </div>
   );
 }
 
 function SettingsTab() {
+  const { currentOrg: settingsOrg } = useAuth();
   return (
     <div className="max-w-2xl space-y-8">
       {/* Platform */}
@@ -1484,7 +1488,7 @@ function SettingsTab() {
             <p className="text-xs text-text-3 mt-0.5">Removes all threads stored in this browser.</p>
           </div>
           <button
-            onClick={() => { localStorage.removeItem("lanara_threads"); window.location.reload(); }}
+            onClick={() => { if (settingsOrg) removeOrgItem(settingsOrg.id, "threads"); window.location.reload(); }}
             className="px-3 py-1.5 rounded-lg text-xs font-medium text-rose-400 border border-rose-400/30 hover:bg-rose-400/10 transition-colors"
           >
             Clear
@@ -1681,8 +1685,9 @@ const MCP_CATALOG: McpCatalogItem[] = [
 const TRANSPORTS = ["streamable_http", "sse", "stdio"];
 
 function McpServersTab() {
+  const { currentOrg: mcpOrg } = useAuth();
   const { data: servers = [], mutate, isLoading } = useSWR(
-    "mcp-servers",
+    mcpOrg ? ["mcp-servers", mcpOrg.id] : null,
     () => api.mcpServers.list(),
   );
 

@@ -9,6 +9,8 @@ import {
   useRef,
   type ReactNode,
 } from "react";
+import { useAuth } from "@/contexts/auth";
+import { getOrgItem, setOrgItem, removeOrgItem } from "@/lib/org-storage";
 
 export interface ChatMessage {
   id: string;
@@ -49,20 +51,20 @@ const ThreadsContext = createContext<ThreadsCtx>({
   deleteThread: () => {},
 });
 
-function loadFromStorage(): Thread[] {
+function loadFromStorage(orgId: string): Thread[] {
   try {
-    const raw = localStorage.getItem("lanara_threads");
+    const raw = getOrgItem(orgId, "threads");
     return raw ? JSON.parse(raw) : [];
   } catch { return []; }
 }
 
-function saveToStorage(threads: Thread[]) {
-  try { localStorage.setItem("lanara_threads", JSON.stringify(threads)); } catch {}
+function saveToStorage(orgId: string, threads: Thread[]) {
+  setOrgItem(orgId, "threads", JSON.stringify(threads));
 }
 
-function loadDraft(): DraftData | null {
+function loadDraft(orgId: string): DraftData | null {
   try {
-    const raw = localStorage.getItem("lanara_draft");
+    const raw = getOrgItem(orgId, "draft");
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     // Migrate legacy format (plain array) to { id, messages }
@@ -73,51 +75,63 @@ function loadDraft(): DraftData | null {
   } catch { return null; }
 }
 
-function saveDraft(id: string, messages: ChatMessage[]) {
-  try { localStorage.setItem("lanara_draft", JSON.stringify({ id, messages })); } catch {}
+function saveDraft(orgId: string, id: string, messages: ChatMessage[]) {
+  setOrgItem(orgId, "draft", JSON.stringify({ id, messages }));
 }
 
-function clearDraft() {
-  try { localStorage.removeItem("lanara_draft"); } catch {}
+function clearDraft(orgId: string) {
+  removeOrgItem(orgId, "draft");
 }
 
 export function ThreadsProvider({ children }: { children: ReactNode }) {
+  const { currentOrg } = useAuth();
+  const orgId = currentOrg?.id ?? null;
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const threadsRef  = useRef<Thread[]>([]);
   const messagesRef = useRef<ChatMessage[]>([]);
-  // Stable ID for the current draft — same draft always maps to the same thread entry
   const draftIdRef  = useRef<string | null>(null);
+  const orgIdRef    = useRef<string | null>(null);
 
+  // Re-initialize state whenever the active org changes
   useEffect(() => {
-    const loaded = loadFromStorage();
+    if (!orgId || orgId === orgIdRef.current) return;
+    orgIdRef.current = orgId;
+
+    const loaded = loadFromStorage(orgId);
     const deduped = loaded.filter((t, i, arr) => arr.findIndex((x) => x.id === t.id) === i);
-    if (deduped.length !== loaded.length) saveToStorage(deduped);
+    if (deduped.length !== loaded.length) saveToStorage(orgId, deduped);
     setThreads(deduped);
     threadsRef.current = deduped;
 
-    const draft = loadDraft();
+    draftIdRef.current = null;
+    setMessages([]);
+    setActiveThreadId(null);
+
+    const draft = loadDraft(orgId);
     if (draft && draft.messages.length > 0) {
       draftIdRef.current = draft.id;
       setMessages(draft.messages);
     }
-  }, []);
+  }, [orgId]);
 
   useEffect(() => { threadsRef.current  = threads;  }, [threads]);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
 
-  // Persist in-progress draft with its stable ID whenever messages change
+  // Persist in-progress draft whenever messages change
   useEffect(() => {
+    if (!orgId) return;
     if (activeThreadId !== null) return;
     if (messages.length === 0) {
-      clearDraft();
+      clearDraft(orgId);
       draftIdRef.current = null;
     } else {
       if (!draftIdRef.current) draftIdRef.current = crypto.randomUUID();
-      saveDraft(draftIdRef.current, messages);
+      saveDraft(orgId, draftIdRef.current, messages);
     }
-  }, [messages, activeThreadId]);
+  }, [messages, activeThreadId, orgId]);
 
   const addMessage = useCallback((role: "user" | "assistant", content: string) => {
     setMessages((prev) => [
@@ -128,8 +142,8 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
 
   const startNewChat = useCallback(() => {
     const currentMessages = messagesRef.current;
-    if (currentMessages.length > 0) {
-      // Use the draft's stable ID so repeated calls upsert rather than duplicate
+    const currentOrgId = orgIdRef.current;
+    if (currentMessages.length > 0 && currentOrgId) {
       const threadId = draftIdRef.current ?? crypto.randomUUID();
       const title =
         currentMessages.find((m) => m.role === "user")?.content.slice(0, 60) ?? "Chat";
@@ -139,16 +153,15 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
         messages: currentMessages,
         createdAt: Date.now(),
       };
-      // Upsert: remove any existing entry with this ID before prepending
       const rest = threadsRef.current.filter((t) => t.id !== threadId);
       const updated = [thread, ...rest].slice(0, 50);
       setThreads(updated);
-      saveToStorage(updated);
+      saveToStorage(currentOrgId, updated);
     }
     draftIdRef.current = null;
     setMessages([]);
     setActiveThreadId(null);
-    clearDraft();
+    if (orgIdRef.current) clearDraft(orgIdRef.current);
   }, []);
 
   const loadThread = useCallback((threadId: string) => {
@@ -157,13 +170,13 @@ export function ThreadsProvider({ children }: { children: ReactNode }) {
     setMessages(thread.messages);
     setActiveThreadId(threadId);
     draftIdRef.current = null;
-    clearDraft();
+    if (orgIdRef.current) clearDraft(orgIdRef.current);
   }, []);
 
   const deleteThread = useCallback((threadId: string) => {
     const updated = threadsRef.current.filter((t) => t.id !== threadId);
     setThreads(updated);
-    saveToStorage(updated);
+    if (orgIdRef.current) saveToStorage(orgIdRef.current, updated);
     setActiveThreadId((prev) => (prev === threadId ? null : prev));
   }, []);
 

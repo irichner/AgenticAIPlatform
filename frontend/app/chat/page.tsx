@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { api, type ChatRoom, type ChatMessage, type ChatUser } from "@/lib/api";
+import { useAuth } from "@/contexts/auth";
 import { cn } from "@/lib/cn";
 
 const DISPLAY_NAME_KEY = "lanara_chat_display_name";
@@ -32,6 +33,9 @@ function colorFor(str: string) {
 }
 
 export default function ChatPage() {
+  const { currentOrg } = useAuth();
+  const orgKey = currentOrg?.id ?? null;
+
   // ── display name ─────────────────────────────────────────────
   const [displayName, setDisplayName] = useState(() =>
     typeof window !== "undefined" ? localStorage.getItem(DISPLAY_NAME_KEY) ?? "" : ""
@@ -48,12 +52,12 @@ export default function ChatPage() {
 
   // ── data ─────────────────────────────────────────────────────
   const { data: users = [], mutate: mutateUsers } = useSWR(
-    "chat-users",
+    orgKey ? ["chat-users", orgKey] : null,
     () => api.chat.users.list(),
   );
 
   const { data: rooms = [], mutate: mutateRooms } = useSWR(
-    "chat-rooms",
+    orgKey ? ["chat-rooms", orgKey] : null,
     () => api.chat.rooms.list(),
   );
 

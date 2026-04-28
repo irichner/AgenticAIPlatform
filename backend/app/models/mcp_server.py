@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import String, Text, Boolean, DateTime, text
+from sqlalchemy import String, Text, Boolean, DateTime, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
 import uuid
 from app.models.base import Base, TimestampMixin
@@ -16,6 +16,9 @@ class McpServer(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    org_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("orgs.id", ondelete="CASCADE"), nullable=True, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     url: Mapped[str] = mapped_column(Text, nullable=False)

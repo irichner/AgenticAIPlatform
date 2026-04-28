@@ -42,6 +42,7 @@ import { FloatingEdge, type EdgeData } from "@/components/workflow/FloatingEdge"
 import { FloatingConnectionLine } from "@/components/workflow/FloatingConnectionLine";
 import { ExecutionPanel, RunInputDialog, type ExecEvent } from "@/components/workflow/ExecutionPanel";
 import { api, type Agent, type BusinessUnit } from "@/lib/api";
+import { useAuth } from "@/contexts/auth";
 import { exportToBpmnXml, importFromBpmnXml } from "@/lib/bpmn-xml";
 import { applyDagreLayout } from "@/lib/dagre-layout";
 import { cn } from "@/lib/cn";
@@ -895,7 +896,8 @@ function WorkflowPageInner({ agents, businessUnits }: PageInnerProps) {
   })();
 
   // ── SWR for workflow list ─────────────────────────────────────────────────
-  const { data: workflowList = [] } = useSWR("workflow-list", () => api.workflows.list());
+  const { currentOrg: wfOrg } = useAuth();
+  const { data: workflowList = [] } = useSWR(wfOrg ? "workflow-list" : null, () => api.workflows.list());
 
   return (
     <div className="flex flex-1 min-w-0 overflow-hidden">
@@ -1179,8 +1181,10 @@ function WorkflowPageInner({ agents, businessUnits }: PageInnerProps) {
 // ── Page wrapper ──────────────────────────────────────────────────────────────
 
 export default function WorkflowPage() {
-  const { data: agentsRaw = [] } = useSWR("workflow-agents", () => api.agents.list());
-  const { data: busRaw = [] }    = useSWR("workflow-bus",    () => api.businessUnits.list());
+  const { currentOrg } = useAuth();
+  const orgKey = currentOrg?.id ?? null;
+  const { data: agentsRaw = [] } = useSWR(orgKey ? ["workflow-agents", orgKey] : null, () => api.agents.list());
+  const { data: busRaw = [] }    = useSWR(orgKey ? ["workflow-bus", orgKey]    : null, () => api.businessUnits.list());
 
   return (
     <div className="flex h-screen bg-surface-0 overflow-hidden">

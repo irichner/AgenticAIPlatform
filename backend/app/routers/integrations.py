@@ -4,12 +4,14 @@ import os
 import json
 import secrets
 from datetime import datetime, timezone
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
+from app.auth.dependencies import resolve_org
 from app.dependencies import get_db
 from app.models.google_token import GoogleOAuthToken
 
@@ -43,17 +45,22 @@ def _client_config() -> dict:
     }
 
 
-async def _get_or_create_token_row(db: AsyncSession) -> GoogleOAuthToken:
-    result = await db.execute(select(GoogleOAuthToken).limit(1))
+async def _get_or_create_token_row(db: AsyncSession, org_id: UUID) -> GoogleOAuthToken:
+    result = await db.execute(
+        select(GoogleOAuthToken).where(GoogleOAuthToken.org_id == org_id).limit(1)
+    )
     row = result.scalar_one_or_none()
     if row is None:
-        row = GoogleOAuthToken()
+        row = GoogleOAuthToken(org_id=org_id)
         db.add(row)
     return row
 
 
 @router.get("/auth-url")
-async def get_auth_url(db: AsyncSession = Depends(get_db)):
+async def get_auth_url(
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
     """Generate a Google OAuth authorization URL."""
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         raise HTTPException(
@@ -62,28 +69,38 @@ async def get_auth_url(db: AsyncSession = Depends(get_db)):
         )
     try:
         from google_auth_oauthlib.flow import Flow
-        flow = Flow.from_client_config(_client_config(), scopes=SCOPES, redirect_uri=GOOGLE_REDIRECT_URI)
-        state = secrets.token_urlsafe(32)
+        random_state = secrets.token_urlsafe(32)
+        # Embed org_id in the state string so the callback can identify which org to update.
+        # Google passes this value back verbatim, so we can recover it without session state.
+        google_state = f"{random_state}|{str(org_id)}"
+        flow = Flow.from_client_config(
+            _client_config(), scopes=SCOPES, redirect_uri=GOOGLE_REDIRECT_URI
+        )
         auth_url, _ = flow.authorization_url(
             access_type="offline",
             include_granted_scopes="true",
             prompt="consent",
-            state=state,
+            state=google_state,
         )
-        # Store state + PKCE code_verifier together so the callback can reconstruct the flow
         code_verifier = getattr(flow, "code_verifier", None)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to build auth URL: {exc}")
 
-    row = await _get_or_create_token_row(db)
-    row.oauth_state = json.dumps({"state": state, "code_verifier": code_verifier})
+    row = await _get_or_create_token_row(db, org_id)
+    # Store only the random part for state validation; org_id is on the row itself
+    row.oauth_state = json.dumps({"state": random_state, "code_verifier": code_verifier})
     await db.commit()
 
     return {"auth_url": auth_url}
 
 
 @router.get("/callback")
-async def oauth_callback(code: str | None = None, state: str | None = None, error: str | None = None, db: AsyncSession = Depends(get_db)):
+async def oauth_callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
     """Handle Google OAuth callback, exchange code for tokens."""
     close_script = """
 <html><body><script>
@@ -111,10 +128,26 @@ async def oauth_callback(code: str | None = None, state: str | None = None, erro
     if not code:
         return HTMLResponse(error_script("No authorization code received"))
 
-    result = await db.execute(select(GoogleOAuthToken).limit(1))
+    # Extract org_id and random_state from the combined state string
+    random_state = state
+    callback_org_id: UUID | None = None
+    if state and "|" in state:
+        parts = state.rsplit("|", 1)
+        random_state = parts[0]
+        try:
+            callback_org_id = UUID(parts[1])
+        except ValueError:
+            pass
+
+    if callback_org_id:
+        result = await db.execute(
+            select(GoogleOAuthToken).where(GoogleOAuthToken.org_id == callback_org_id).limit(1)
+        )
+    else:
+        result = await db.execute(select(GoogleOAuthToken).limit(1))
+
     row = result.scalar_one_or_none()
 
-    # oauth_state is stored as JSON: {"state": "...", "code_verifier": "..."}
     stored_state: str | None = None
     stored_verifier: str | None = None
     if row and row.oauth_state:
@@ -125,14 +158,16 @@ async def oauth_callback(code: str | None = None, state: str | None = None, erro
         except (json.JSONDecodeError, AttributeError):
             stored_state = row.oauth_state  # legacy plain string
 
-    if not row or (state and stored_state != state):
+    if not row or (random_state and stored_state != random_state):
         return HTMLResponse(error_script("Invalid OAuth state — please try connecting again"))
 
     try:
         from google_auth_oauthlib.flow import Flow
         import httpx
 
-        flow = Flow.from_client_config(_client_config(), scopes=SCOPES, redirect_uri=GOOGLE_REDIRECT_URI, state=stored_state)
+        flow = Flow.from_client_config(
+            _client_config(), scopes=SCOPES, redirect_uri=GOOGLE_REDIRECT_URI, state=stored_state
+        )
         if stored_verifier:
             flow.code_verifier = stored_verifier
         flow.fetch_token(code=code)
@@ -165,18 +200,28 @@ async def oauth_callback(code: str | None = None, state: str | None = None, erro
 
 
 @router.get("/status")
-async def get_status(db: AsyncSession = Depends(get_db)):
+async def get_status(
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
     """Return Google Drive connection status."""
-    result = await db.execute(select(GoogleOAuthToken).limit(1))
+    result = await db.execute(
+        select(GoogleOAuthToken).where(GoogleOAuthToken.org_id == org_id).limit(1)
+    )
     row = result.scalar_one_or_none()
     connected = bool(row and row.refresh_token)
     return {"connected": connected, "email": row.user_email if connected else None}
 
 
 @router.delete("")
-async def disconnect(db: AsyncSession = Depends(get_db)):
+async def disconnect(
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
     """Revoke Google Drive access and delete stored tokens."""
-    result = await db.execute(select(GoogleOAuthToken).limit(1))
+    result = await db.execute(
+        select(GoogleOAuthToken).where(GoogleOAuthToken.org_id == org_id).limit(1)
+    )
     row = result.scalar_one_or_none()
     if row:
         if row.access_token:
@@ -195,9 +240,23 @@ async def disconnect(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/token")
-async def get_access_token(db: AsyncSession = Depends(get_db)):
-    """Return a valid access token, refreshing if expired. Used internally by the MCP server."""
-    result = await db.execute(select(GoogleOAuthToken).limit(1))
+async def get_access_token(request: Request, db: AsyncSession = Depends(get_db)):
+    """Return a valid access token, refreshing if expired. Used internally by the MCP server.
+
+    Scopes by org when X-Org-Id is present; falls back to limit(1) for legacy MCP server calls.
+    """
+    raw_org_id = request.headers.get("x-org-id")
+    if raw_org_id:
+        try:
+            token_org_id = UUID(raw_org_id)
+            result = await db.execute(
+                select(GoogleOAuthToken).where(GoogleOAuthToken.org_id == token_org_id).limit(1)
+            )
+        except ValueError:
+            result = await db.execute(select(GoogleOAuthToken).limit(1))
+    else:
+        result = await db.execute(select(GoogleOAuthToken).limit(1))
+
     row = result.scalar_one_or_none()
     if not row or not row.refresh_token:
         raise HTTPException(status_code=401, detail="Google Drive not connected")

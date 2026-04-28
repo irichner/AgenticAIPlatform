@@ -5,12 +5,13 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.dependencies import resolve_org
 from app.core.embeddings import embed_texts
 from app.core.rag import chunk_text
 from app.core.rbac import require_role
 from app.dependencies import get_db
-from app.models.document import Document, DocumentChunk
 from app.models.business_unit import BusinessUnit
+from app.models.document import Document, DocumentChunk
 from app.schemas.document import DocumentOut, SearchRequest, SearchResult
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -36,10 +37,16 @@ def _extract_text(content_bytes: bytes, content_type: str | None) -> str:
 async def upload_document(
     business_unit_id: uuid.UUID = Form(...),
     file: UploadFile = File(...),
+    org_id: uuid.UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
     _role: str = Depends(require_role(["admin", "editor"])),
 ):
-    bu = await db.execute(select(BusinessUnit).where(BusinessUnit.id == business_unit_id))
+    bu = await db.execute(
+        select(BusinessUnit).where(
+            BusinessUnit.id == business_unit_id,
+            BusinessUnit.org_id == org_id,
+        )
+    )
     if bu.scalar_one_or_none() is None:
         raise HTTPException(status_code=404, detail="Business unit not found")
 
@@ -88,9 +95,15 @@ async def upload_document(
 @router.get("", response_model=list[DocumentOut])
 async def list_documents(
     business_unit_id: uuid.UUID | None = None,
+    org_id: uuid.UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(Document).order_by(Document.created_at.desc())
+    stmt = (
+        select(Document)
+        .join(BusinessUnit, BusinessUnit.id == Document.business_unit_id)
+        .where(BusinessUnit.org_id == org_id)
+        .order_by(Document.created_at.desc())
+    )
     if business_unit_id:
         stmt = stmt.where(Document.business_unit_id == business_unit_id)
     result = await db.execute(stmt)
@@ -100,10 +113,15 @@ async def list_documents(
 @router.delete("/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(
     doc_id: uuid.UUID,
+    org_id: uuid.UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
     _role: str = Depends(require_role(["admin", "editor"])),
 ):
-    result = await db.execute(select(Document).where(Document.id == doc_id))
+    result = await db.execute(
+        select(Document)
+        .join(BusinessUnit, BusinessUnit.id == Document.business_unit_id)
+        .where(Document.id == doc_id, BusinessUnit.org_id == org_id)
+    )
     doc = result.scalar_one_or_none()
     if doc is None:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -114,8 +132,18 @@ async def delete_document(
 @router.post("/search", response_model=list[SearchResult])
 async def search_documents(
     payload: SearchRequest,
+    org_id: uuid.UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
+    bu = await db.execute(
+        select(BusinessUnit).where(
+            BusinessUnit.id == payload.business_unit_id,
+            BusinessUnit.org_id == org_id,
+        )
+    )
+    if bu.scalar_one_or_none() is None:
+        raise HTTPException(status_code=404, detail="Business unit not found")
+
     try:
         from app.core.embeddings import embed_query
         query_vec = await embed_query(payload.query)

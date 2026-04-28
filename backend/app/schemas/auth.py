@@ -16,6 +16,7 @@ class MeOrg(BaseModel):
     id: UUID
     name: str
     slug: str
+    logo_url: str | None = None
     role_key: str
 
     model_config = {"from_attributes": True}
@@ -27,11 +28,19 @@ class MeOut(BaseModel):
     full_name: str | None
     avatar_url: str | None
     email_verified: bool
+    job_title: str | None = None
+    onboarding_completed: bool = False
     orgs: list[MeOrg]
     # keyed by "org:<uuid>" or "tenant:<uuid>" → list of permission IDs
     permissions: dict[str, list[str]] = {}
 
     model_config = {"from_attributes": True}
+
+
+class MePatch(BaseModel):
+    full_name: str | None = None
+    job_title: str | None = None
+    onboarding_completed: bool | None = None
 
 
 class SessionOut(BaseModel):

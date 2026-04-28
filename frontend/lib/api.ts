@@ -223,10 +223,17 @@ export interface ApprovalRequest {
   updated_at: string;
 }
 
+function _getOrgHeader(): Record<string, string> {
+  const orgId = typeof window !== "undefined" ? localStorage.getItem("lanara_org_id") : null;
+  return orgId ? { "X-Org-Id": orgId } : {};
+}
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json", ..._getOrgHeader() };
+
   const res = await fetch(`/api${path}`, {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
     cache: "no-store",
   });
@@ -244,6 +251,7 @@ export interface OrgOut {
   id: string;
   name: string;
   slug: string;
+  logo_url: string | null;
   sso_enforced: boolean;
   created_at: string;
 }
@@ -337,7 +345,7 @@ export const api = {
     list: () => req<OrgOut[]>("GET", "/orgs"),
     create: (payload: { name: string; slug: string }) => req<OrgOut>("POST", "/orgs", payload),
     get: (orgId: string) => req<OrgOut>("GET", `/orgs/${orgId}`),
-    update: (orgId: string, payload: { name?: string; sso_enforced?: boolean }) =>
+    update: (orgId: string, payload: { name?: string; logo_url?: string | null; sso_enforced?: boolean }) =>
       req<OrgOut>("PATCH", `/orgs/${orgId}`, payload),
     members: {
       list: (orgId: string) => req<MemberOut[]>("GET", `/orgs/${orgId}/members`),
@@ -352,6 +360,8 @@ export const api = {
       list: (orgId: string) => req<TenantOut[]>("GET", `/orgs/${orgId}/tenants`),
       create: (orgId: string, payload: { name: string; slug: string }) =>
         req<TenantOut>("POST", `/orgs/${orgId}/tenants`, payload),
+      update: (orgId: string, tenantId: string, payload: { name: string }) =>
+        req<TenantOut>("PATCH", `/orgs/${orgId}/tenants/${tenantId}`, payload),
       delete: (orgId: string, tenantId: string) =>
         req<{ detail: string }>("DELETE", `/orgs/${orgId}/tenants/${tenantId}`),
     },
@@ -497,7 +507,7 @@ export const api = {
     try {
       res = await fetch("/api/ask", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ..._getOrgHeader() },
         body: JSON.stringify({ message, history, model_id: modelId ?? null, app_name: appName ?? null }),
         signal: controller.signal,
       });
@@ -572,7 +582,7 @@ export const api = {
     updateTool: (serverId: string, toolId: string, payload: { description?: string; enabled?: boolean }) =>
       req<McpTool>("PATCH", `/mcp-servers/${serverId}/tools/${toolId}`, payload),
     exportCode: async (serverId: string, slug: string): Promise<void> => {
-      const res = await fetch(`/api/mcp-servers/${serverId}/export`, { method: "POST", headers: { "X-Role": "editor" } });
+      const res = await fetch(`/api/mcp-servers/${serverId}/export`, { method: "POST", headers: { "X-Role": "editor", ..._getOrgHeader() } });
       if (!res.ok) throw new Error(`Export failed: ${res.status}`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -631,7 +641,7 @@ export const api = {
       form.append("business_unit_id", businessUnitId);
       const res = await fetch("/api/documents", {
         method: "POST",
-        headers: { "X-Role": "editor" },
+        headers: { "X-Role": "editor", ..._getOrgHeader() },
         body: form,
       });
       if (!res.ok) {
@@ -701,7 +711,7 @@ export const api = {
       try {
         res = await fetch("/api/workflow-runs", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ..._getOrgHeader() },
           body: JSON.stringify(payload),
         });
       } catch (e) { onError(String(e)); return; }

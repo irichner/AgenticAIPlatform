@@ -21,6 +21,8 @@ import { AgentNode } from "./AgentNode";
 import { UnitZoneNode, type UnitZoneData } from "./UnitZoneNode";
 import { GroupZoneNode } from "./GroupZoneNode";
 import type { BusinessUnit, Agent, AgentGroup } from "@/lib/api";
+import { useAuth } from "@/contexts/auth";
+import { getOrgItem, setOrgItem } from "@/lib/org-storage";
 
 const nodeTypes = {
   agentNode: AgentNode,
@@ -181,23 +183,21 @@ function buildLayout(
 
 // ── Layout persistence ────────────────────────────────────────────────────────
 
-const CANVAS_LAYOUT_KEY = "lanara-canvas-layout";
-
 interface CanvasSavedState {
   positions: Record<string, { x: number; y: number }>; // zoneId → position
   viewport: Viewport;
 }
 
-function loadCanvasState(): CanvasSavedState | null {
+function loadCanvasState(orgId: string): CanvasSavedState | null {
   try {
-    const raw = localStorage.getItem(CANVAS_LAYOUT_KEY);
+    const raw = getOrgItem(orgId, "canvas-layout");
     if (raw) return JSON.parse(raw);
   } catch { /* ignore */ }
   return null;
 }
 
-function saveCanvasState(state: CanvasSavedState) {
-  try { localStorage.setItem(CANVAS_LAYOUT_KEY, JSON.stringify(state)); } catch { /* ignore */ }
+function saveCanvasState(orgId: string, state: CanvasSavedState) {
+  setOrgItem(orgId, "canvas-layout", JSON.stringify(state));
 }
 
 // ── FitViewHelper — calls fitView once after nodes first appear ───────────────
@@ -228,11 +228,23 @@ interface CanvasViewProps {
 }
 
 export function CanvasView({ businessUnits, agents, groups, onRun, onSelectAgent, onDeselect, onReassign }: CanvasViewProps) {
+  const { currentOrg } = useAuth();
+  const orgId = currentOrg?.id ?? null;
+  const prevOrgIdRef = useRef<string | null>(null);
+
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
   // Stable ref to saved state so it doesn't trigger re-renders
-  const savedState = useRef<CanvasSavedState | null>(loadCanvasState());
+  const savedState = useRef<CanvasSavedState | null>(null);
+
+  // Load org-scoped canvas state when orgId becomes available or changes
+  useEffect(() => {
+    if (!orgId || orgId === prevOrgIdRef.current) return;
+    prevOrgIdRef.current = orgId;
+    savedState.current = loadCanvasState(orgId);
+  }, [orgId]);
+
   const hasSavedLayout = savedState.current !== null;
 
   const onToggleCollapseRef = useRef<(unitId: string) => void>(() => {});
@@ -314,7 +326,7 @@ export function CanvasView({ businessUnits, agents, groups, onRun, onSelectAgent
         viewport: savedState.current?.viewport ?? { x: 0, y: 0, zoom: 0.7 },
       };
       savedState.current = next;
-      saveCanvasState(next);
+      if (orgId) saveCanvasState(orgId, next);
 
       // Agent reassign logic
       if (draggedNode.type !== "agentNode" || !onReassignRef.current) return;
@@ -350,8 +362,8 @@ export function CanvasView({ businessUnits, agents, groups, onRun, onSelectAgent
       viewport,
     };
     savedState.current = next;
-    saveCanvasState(next);
-  }, []);
+    if (orgId) saveCanvasState(orgId, next);
+  }, [orgId]);
 
   const handlePaneClick = useCallback(() => { onDeselectRef.current?.(); }, []);
   const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {

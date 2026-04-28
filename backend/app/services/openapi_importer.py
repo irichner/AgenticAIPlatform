@@ -114,6 +114,7 @@ async def import_openapi(
     description: str | None = None,
     auth_config: dict | None = None,
     slug: str | None = None,
+    org_id=None,
 ) -> McpServer:
     if spec_json:
         spec = spec_json
@@ -142,6 +143,7 @@ async def import_openapi(
     mcp_url = f"{backend_url}/api/mcp/dynamic/{final_slug}"
 
     server = McpServer(
+        org_id=org_id,
         name=name,
         url=mcp_url,
         transport="streamable_http",

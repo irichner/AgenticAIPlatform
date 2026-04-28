@@ -5,8 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.dependencies import get_db
+from app.auth.dependencies import resolve_org
 from app.models.chat import ChatRoom, ChatMessage
 from app.models.user import User
+from app.models.membership import OrgMembership
 from app.schemas.chat import (
     ChatRoomCreate, ChatRoomOut,
     ChatMessageCreate, ChatMessageOut,
@@ -16,16 +18,28 @@ from app.schemas.chat import (
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
-# ── users ─────────────────────────────────────────────────────────────────────
+# ── users (org members only) ──────────────────────────────────────────────────
 
 @router.get("/users", response_model=list[UserOut])
-async def list_users(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).order_by(User.full_name, User.email))
+async def list_users(
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(User)
+        .join(OrgMembership, OrgMembership.user_id == User.id)
+        .where(OrgMembership.org_id == org_id)
+        .order_by(User.full_name, User.email)
+    )
     return result.scalars().all()
 
 
 @router.post("/users", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-async def create_user(payload: UserCreate, db: AsyncSession = Depends(get_db)):
+async def create_user(
+    payload: UserCreate,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
     user = User(email=payload.email, full_name=payload.full_name, role=payload.role)
     db.add(user)
     await db.commit()
@@ -34,7 +48,11 @@ async def create_user(payload: UserCreate, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
+async def delete_user(
+    user_id: UUID,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if user is None:
@@ -43,17 +61,28 @@ async def delete_user(user_id: UUID, db: AsyncSession = Depends(get_db)):
     await db.commit()
 
 
-# ── rooms ─────────────────────────────────────────────────────────────────────
+# ── rooms (org-scoped) ────────────────────────────────────────────────────────
 
 @router.get("/rooms", response_model=list[ChatRoomOut])
-async def list_rooms(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(ChatRoom).order_by(ChatRoom.name))
+async def list_rooms(
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(ChatRoom)
+        .where(ChatRoom.org_id == org_id)
+        .order_by(ChatRoom.name)
+    )
     return result.scalars().all()
 
 
 @router.post("/rooms", response_model=ChatRoomOut, status_code=status.HTTP_201_CREATED)
-async def create_room(payload: ChatRoomCreate, db: AsyncSession = Depends(get_db)):
-    room = ChatRoom(name=payload.name, type=payload.type)
+async def create_room(
+    payload: ChatRoomCreate,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    room = ChatRoom(org_id=org_id, name=payload.name, type=payload.type)
     db.add(room)
     await db.commit()
     await db.refresh(room)
@@ -61,8 +90,14 @@ async def create_room(payload: ChatRoomCreate, db: AsyncSession = Depends(get_db
 
 
 @router.delete("/rooms/{room_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_room(room_id: UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(ChatRoom).where(ChatRoom.id == room_id))
+async def delete_room(
+    room_id: UUID,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(ChatRoom).where(ChatRoom.id == room_id, ChatRoom.org_id == org_id)
+    )
     room = result.scalar_one_or_none()
     if room is None:
         raise HTTPException(status_code=404, detail="Room not found")
@@ -73,7 +108,18 @@ async def delete_room(room_id: UUID, db: AsyncSession = Depends(get_db)):
 # ── messages ──────────────────────────────────────────────────────────────────
 
 @router.get("/rooms/{room_id}/messages", response_model=list[ChatMessageOut])
-async def list_messages(room_id: UUID, db: AsyncSession = Depends(get_db)):
+async def list_messages(
+    room_id: UUID,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    # Verify room belongs to org
+    room = await db.execute(
+        select(ChatRoom).where(ChatRoom.id == room_id, ChatRoom.org_id == org_id)
+    )
+    if not room.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Room not found")
+
     result = await db.execute(
         select(ChatMessage)
         .where(ChatMessage.room_id == room_id)
@@ -87,8 +133,16 @@ async def list_messages(room_id: UUID, db: AsyncSession = Depends(get_db)):
 async def send_message(
     room_id: UUID,
     payload: ChatMessageCreate,
+    org_id: UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
+    # Verify room belongs to org
+    room = await db.execute(
+        select(ChatRoom).where(ChatRoom.id == room_id, ChatRoom.org_id == org_id)
+    )
+    if not room.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Room not found")
+
     msg = ChatMessage(room_id=room_id, sender_name=payload.sender_name, content=payload.content)
     db.add(msg)
     await db.commit()

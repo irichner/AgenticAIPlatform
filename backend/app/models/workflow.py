@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String, Text, Integer, ForeignKey, UniqueConstraint, DateTime, func, text
+
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
 import uuid
 
@@ -13,6 +14,9 @@ class Workflow(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    org_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("orgs.id", ondelete="CASCADE"), nullable=True, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False, server_default="Untitled Workflow")
     graph: Mapped[dict] = mapped_column(

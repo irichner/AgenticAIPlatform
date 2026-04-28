@@ -287,6 +287,7 @@ async def sync_provider(db: AsyncSession, provider: ApiProvider) -> ApiProvider:
             row.capabilities = m.get("capabilities")
         else:
             db.add(AiModel(
+                org_id=provider.org_id,
                 provider_id=provider.id,
                 name=m["name"],
                 type="api",
@@ -309,8 +310,10 @@ async def sync_provider(db: AsyncSession, provider: ApiProvider) -> ApiProvider:
 async def connect_provider(
     db: AsyncSession,
     payload: ApiProviderConnect,
+    org_id: "UUID | None" = None,
 ) -> ApiProvider:
     """Validate key, create/update provider record, and sync models."""
+    from uuid import UUID
     name = payload.name.lower().strip()
 
     # Validate before touching the DB
@@ -318,11 +321,15 @@ async def connect_provider(
 
     display_name = _DISPLAY_NAMES.get(name, name.title())
 
-    result = await db.execute(select(ApiProvider).where(ApiProvider.name == name))
+    stmt = select(ApiProvider).where(ApiProvider.name == name)
+    if org_id is not None:
+        stmt = stmt.where(ApiProvider.org_id == org_id)
+    result = await db.execute(stmt)
     provider = result.scalar_one_or_none()
 
     if provider is None:
         provider = ApiProvider(
+            org_id=org_id,
             name=name,
             display_name=display_name,
             api_key=payload.api_key,
@@ -363,6 +370,7 @@ async def connect_provider(
             row.capabilities = m.get("capabilities")
         else:
             db.add(AiModel(
+                org_id=org_id,
                 provider_id=provider.id,
                 name=m["name"],
                 type="api",

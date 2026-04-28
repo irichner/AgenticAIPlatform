@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import String, Boolean, DateTime, func, text
+from sqlalchemy import String, Boolean, DateTime, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 import uuid
 from app.models.base import Base
@@ -15,6 +15,7 @@ class Org(Base):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(63), unique=True, nullable=False)
+    logo_url: Mapped[str | None] = mapped_column(Text(), nullable=True)
     sso_enforced: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

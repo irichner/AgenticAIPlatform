@@ -9,6 +9,10 @@ class TenantCreate(BaseModel):
     slug: str
 
 
+class TenantUpdate(BaseModel):
+    name: str | None = None
+
+
 class TenantOut(BaseModel):
     id: UUID
     org_id: UUID

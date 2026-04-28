@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from uuid import UUID
 
+from app.auth.dependencies import resolve_org
 from app.dependencies import get_db
 from app.models.workflow import Workflow
 from app.agents.workflow_executor import execute_workflow
@@ -28,6 +29,7 @@ class WorkflowRunRequest(BaseModel):
 @router.post("")
 async def start_workflow_run(
     payload: WorkflowRunRequest,
+    org_id: UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -45,7 +47,9 @@ async def start_workflow_run(
             wf_id = UUID(payload.workflow_id)
         except ValueError:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid workflow_id")
-        result = await db.execute(select(Workflow).where(Workflow.id == wf_id))
+        result = await db.execute(
+            select(Workflow).where(Workflow.id == wf_id, Workflow.org_id == org_id)
+        )
         wf = result.scalar_one_or_none()
         if wf is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")

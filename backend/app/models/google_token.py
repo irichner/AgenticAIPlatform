@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import String, Text, DateTime, text
+from sqlalchemy import String, Text, DateTime, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 import uuid
 from app.models.base import Base, TimestampMixin
@@ -12,6 +12,9 @@ class GoogleOAuthToken(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    org_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("orgs.id", ondelete="CASCADE"), nullable=True, index=True
     )
     access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)

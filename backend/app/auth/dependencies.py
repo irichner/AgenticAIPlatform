@@ -1,11 +1,12 @@
 from __future__ import annotations
 from typing import Literal
 from uuid import UUID
-from fastapi import Depends, HTTPException, Request
+from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.dependencies import get_db
 from app.models.user import User
+from app.models.membership import OrgMembership
 from app.auth.context import AuthContext
 from app.auth.resolver import get_user_permissions, has_permission
 
@@ -31,6 +32,30 @@ async def optional_user(
     if not user_id_str:
         return None
     return await db.get(User, UUID(user_id_str))
+
+
+async def resolve_org(
+    request: Request,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+) -> UUID:
+    """Read X-Org-Id header and validate the authenticated user is a member."""
+    raw = request.headers.get("x-org-id")
+    if not raw:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Org-Id header is required")
+    try:
+        org_id = UUID(raw)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Org-Id is not a valid UUID")
+    result = await db.execute(
+        select(OrgMembership).where(
+            OrgMembership.org_id == org_id,
+            OrgMembership.user_id == user.id,
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a member of this org")
+    return org_id
 
 
 def require_permission(permission: str, scope: Literal["org", "tenant"] = "org"):

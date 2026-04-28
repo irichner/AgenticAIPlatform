@@ -10,22 +10,41 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 
 from app.agents.executor import execute_run
+from app.auth.dependencies import resolve_org
 from app.core.redis_client import get_redis
 from app.dependencies import get_db
 from app.models.agent import Agent, AgentVersion
+from app.models.business_unit import BusinessUnit
 from app.models.run import Run
 from app.schemas.run import RunCreate, RunOut
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
 
+async def _get_run_for_org(run_id: UUID, org_id: UUID, db: AsyncSession) -> Run:
+    result = await db.execute(
+        select(Run)
+        .join(BusinessUnit, BusinessUnit.id == Run.business_unit_id)
+        .where(Run.id == run_id, BusinessUnit.org_id == org_id)
+    )
+    run = result.scalar_one_or_none()
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    return run
+
+
 @router.post("", response_model=RunOut, status_code=status.HTTP_201_CREATED)
 async def create_run(
     payload: RunCreate,
     background_tasks: BackgroundTasks,
+    org_id: UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
-    agent_res = await db.execute(select(Agent).where(Agent.id == payload.agent_id))
+    agent_res = await db.execute(
+        select(Agent)
+        .join(BusinessUnit, BusinessUnit.id == Agent.business_unit_id)
+        .where(Agent.id == payload.agent_id, BusinessUnit.org_id == org_id)
+    )
     agent = agent_res.scalar_one_or_none()
     if agent is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
@@ -61,14 +80,15 @@ async def create_run(
 
 
 @router.get("/{run_id}/stream")
-async def stream_run(run_id: UUID, db: AsyncSession = Depends(get_db)):
+async def stream_run(
+    run_id: UUID,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
     redis = get_redis()
     channel = f"run:{run_id}"
 
-    run_res = await db.execute(select(Run).where(Run.id == run_id))
-    run = run_res.scalar_one_or_none()
-    if run is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
+    run = await _get_run_for_org(run_id, org_id, db)
 
     if run.status in ("completed", "failed"):
         async def finished_generator():
@@ -102,20 +122,26 @@ async def stream_run(run_id: UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{run_id}", response_model=RunOut)
-async def get_run(run_id: UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Run).where(Run.id == run_id))
-    run = result.scalar_one_or_none()
-    if run is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found")
-    return run
+async def get_run(
+    run_id: UUID,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    return await _get_run_for_org(run_id, org_id, db)
 
 
 @router.get("", response_model=list[RunOut])
 async def list_runs(
     agent_id: UUID | None = None,
+    org_id: UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(Run).order_by(Run.created_at.desc())
+    stmt = (
+        select(Run)
+        .join(BusinessUnit, BusinessUnit.id == Run.business_unit_id)
+        .where(BusinessUnit.org_id == org_id)
+        .order_by(Run.created_at.desc())
+    )
     if agent_id:
         stmt = stmt.where(Run.agent_id == agent_id)
     result = await db.execute(stmt)

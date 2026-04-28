@@ -15,9 +15,13 @@ import { useThreads, type ChatMessage } from "@/components/shared/ThreadsProvide
 import { useBranding } from "@/components/shared/BrandingProvider";
 import { MarkdownContent } from "@/components/shared/MarkdownContent";
 import { api, type AiModel } from "@/lib/api";
+import { useAuth } from "@/contexts/auth";
+import { getOrgItem, setOrgItem, removeOrgItem } from "@/lib/org-storage";
 import { cn } from "@/lib/cn";
 
 export default function AssistantPage() {
+  const { currentOrg } = useAuth();
+  const orgId = currentOrg?.id ?? null;
   const { messages, addMessage } = useThreads();
   const { appName } = useBranding();
   const [input, setInput] = useState("");
@@ -32,14 +36,18 @@ export default function AssistantPage() {
   const { data: allModels = [] } = useSWR("ai-models", () => api.aiModels.list());
   const enabledModels = allModels.filter((m) => m.enabled);
 
-  const [selectedModelId, setSelectedModelId] = useState<string>(() =>
-    typeof window !== "undefined" ? (localStorage.getItem("lanara_default_model_id") ?? "") : "",
-  );
+  const [selectedModelId, setSelectedModelId] = useState<string>("");
+
+  // Load last-used model from org-scoped storage when org is known
+  useEffect(() => {
+    if (!orgId) return;
+    setSelectedModelId(getOrgItem(orgId, "default-model-id") ?? "");
+  }, [orgId]);
 
   const handleModelChange = (id: string) => {
     setSelectedModelId(id);
-    if (id) localStorage.setItem("lanara_default_model_id", id);
-    else localStorage.removeItem("lanara_default_model_id");
+    if (id) setOrgItem(orgId, "default-model-id", id);
+    else removeOrgItem(orgId, "default-model-id");
   };
 
   const activeModelId = selectedModelId && enabledModels.some((m) => m.id === selectedModelId)

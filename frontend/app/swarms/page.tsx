@@ -7,16 +7,20 @@ import { motion } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { UnitCard } from "@/components/units/UnitCard";
 import { api, type BusinessUnit, type Agent, type AgentGroup } from "@/lib/api";
+import { useAuth } from "@/contexts/auth";
 
 function useUnitsAndAgents() {
+  const { currentOrg } = useAuth();
+  const orgKey = currentOrg?.id ?? null;
+
   const { data: units, error: unitsErr, isLoading: unitsLoading, mutate: mutateUnits } =
-    useSWR("business-units", () => api.businessUnits.list());
+    useSWR(orgKey ? ["business-units", orgKey] : null, () => api.businessUnits.list());
 
   const { data: agents, error: agentsErr, isLoading: agentsLoading, mutate: mutateAgents } =
-    useSWR("agents", () => api.agents.list());
+    useSWR(orgKey ? ["agents", orgKey] : null, () => api.agents.list());
 
   const { data: groups, mutate: mutateGroups } =
-    useSWR("groups", () => api.groups.list());
+    useSWR(orgKey ? ["groups", orgKey] : null, () => api.groups.list());
 
   return {
     units: units ?? [],

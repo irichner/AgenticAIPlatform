@@ -23,3 +23,5 @@ class User(Base, TimestampMixin):
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     email_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    job_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    onboarding_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

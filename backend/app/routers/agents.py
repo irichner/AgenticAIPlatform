@@ -10,6 +10,7 @@ from uuid import UUID
 from app.agents.llm import get_active_llm
 from app.agents.prebuilt import PREBUILT_META, list_prebuilt_types
 from app.dependencies import get_db
+from app.auth.dependencies import resolve_org
 from app.models.agent import Agent, AgentVersion
 from app.models.business_unit import BusinessUnit
 from app.models.mcp_server import McpServer
@@ -32,9 +33,15 @@ async def _load_agent(db: AsyncSession, agent_id: UUID) -> Agent | None:
 @router.get("", response_model=list[AgentOut])
 async def list_agents(
     business_unit_id: UUID | None = None,
+    org_id: UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(Agent).options(selectinload(Agent.mcp_servers).selectinload(McpServer.tools))
+    stmt = (
+        select(Agent)
+        .join(BusinessUnit, Agent.business_unit_id == BusinessUnit.id)
+        .options(selectinload(Agent.mcp_servers).selectinload(McpServer.tools))
+        .where(BusinessUnit.org_id == org_id)
+    )
     if business_unit_id:
         stmt = stmt.where(Agent.business_unit_id == business_unit_id)
     result = await db.execute(stmt.order_by(Agent.name))
@@ -50,6 +57,7 @@ class GenerateInstructionsRequest(BaseModel):
 @router.post("/generate-instructions")
 async def generate_agent_instructions(
     payload: GenerateInstructionsRequest,
+    org_id: UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
     llm = await get_active_llm(db)
@@ -84,9 +92,12 @@ async def generate_agent_instructions(
 @router.post("", response_model=AgentOut, status_code=status.HTTP_201_CREATED)
 async def create_agent(
     payload: AgentCreate,
+    org_id: UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
-    bu_result = await db.execute(select(BusinessUnit).where(BusinessUnit.id == payload.business_unit_id))
+    bu_result = await db.execute(
+        select(BusinessUnit).where(BusinessUnit.id == payload.business_unit_id, BusinessUnit.org_id == org_id)
+    )
     if bu_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Business unit not found")
 
@@ -121,8 +132,18 @@ async def create_agent(
 
 
 @router.get("/{agent_id}", response_model=AgentOut)
-async def get_agent(agent_id: UUID, db: AsyncSession = Depends(get_db)):
-    agent = await _load_agent(db, agent_id)
+async def get_agent(
+    agent_id: UUID,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Agent)
+        .join(BusinessUnit, Agent.business_unit_id == BusinessUnit.id)
+        .options(selectinload(Agent.mcp_servers).selectinload(McpServer.tools))
+        .where(Agent.id == agent_id, BusinessUnit.org_id == org_id)
+    )
+    agent = result.scalar_one_or_none()
     if agent is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     return agent
@@ -132,12 +153,14 @@ async def get_agent(agent_id: UUID, db: AsyncSession = Depends(get_db)):
 async def update_agent(
     agent_id: UUID,
     payload: AgentUpdate,
+    org_id: UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(Agent)
-        .where(Agent.id == agent_id)
+        .join(BusinessUnit, Agent.business_unit_id == BusinessUnit.id)
         .options(selectinload(Agent.mcp_servers).selectinload(McpServer.tools))
+        .where(Agent.id == agent_id, BusinessUnit.org_id == org_id)
     )
     agent = result.scalar_one_or_none()
     if agent is None:
@@ -180,8 +203,16 @@ async def update_agent(
 
 
 @router.post("/{agent_id}/publish", response_model=AgentOut)
-async def publish_agent(agent_id: UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+async def publish_agent(
+    agent_id: UUID,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Agent)
+        .join(BusinessUnit, Agent.business_unit_id == BusinessUnit.id)
+        .where(Agent.id == agent_id, BusinessUnit.org_id == org_id)
+    )
     agent = result.scalar_one_or_none()
     if agent is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
@@ -193,7 +224,19 @@ async def publish_agent(agent_id: UUID, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{agent_id}/versions", response_model=list[AgentVersionOut])
-async def list_agent_versions(agent_id: UUID, db: AsyncSession = Depends(get_db)):
+async def list_agent_versions(
+    agent_id: UUID,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    # Verify ownership first
+    owner = await db.execute(
+        select(Agent)
+        .join(BusinessUnit, Agent.business_unit_id == BusinessUnit.id)
+        .where(Agent.id == agent_id, BusinessUnit.org_id == org_id)
+    )
+    if not owner.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     result = await db.execute(
         select(AgentVersion)
         .where(AgentVersion.agent_id == agent_id)
@@ -203,8 +246,16 @@ async def list_agent_versions(agent_id: UUID, db: AsyncSession = Depends(get_db)
 
 
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_agent(agent_id: UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Agent).where(Agent.id == agent_id))
+async def delete_agent(
+    agent_id: UUID,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Agent)
+        .join(BusinessUnit, Agent.business_unit_id == BusinessUnit.id)
+        .where(Agent.id == agent_id, BusinessUnit.org_id == org_id)
+    )
     agent = result.scalar_one_or_none()
     if agent is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
@@ -223,6 +274,7 @@ async def list_prebuilt_agent_types():
 async def create_prebuilt_agent(
     agent_type: str,
     business_unit_id: UUID,
+    org_id: UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
     if agent_type not in list_prebuilt_types():
@@ -231,7 +283,9 @@ async def create_prebuilt_agent(
             detail=f"Unknown agent type '{agent_type}'. Valid: {list_prebuilt_types()}",
         )
 
-    bu_res = await db.execute(select(BusinessUnit).where(BusinessUnit.id == business_unit_id))
+    bu_res = await db.execute(
+        select(BusinessUnit).where(BusinessUnit.id == business_unit_id, BusinessUnit.org_id == org_id)
+    )
     if bu_res.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Business unit not found")
 

@@ -51,19 +51,20 @@ async def create_org(
     if existing.scalar_one_or_none():
         raise HTTPException(409, f"Slug '{body.slug}' already taken")
 
-    from app.routers.auth import _bootstrap_org
-    # More explicit: create org and assign caller as owner
     _ORG_OWNER_ROLE_ID = UUID("00000000-0000-0000-0000-000000000001")
     _TN_ADMIN_ROLE_ID  = UUID("00000000-0000-0000-0000-000000000004")
 
     from app.models.tenant_model import OrgTenant
     from app.models.membership import TenantMembership
+    import re
 
-    org = Org(name=body.name, slug=body.slug)
+    org = Org(name=body.name, slug=body.slug, logo_url=body.logo_url)
     db.add(org)
     await db.flush()
 
-    tenant = OrgTenant(org_id=org.id, name="Default", slug="default")
+    tenant_name = body.first_tenant_name or "Default"
+    tenant_slug = re.sub(r"[^a-z0-9-]", "-", tenant_name.lower())[:63] or "default"
+    tenant = OrgTenant(org_id=org.id, name=tenant_name, slug=tenant_slug)
     db.add(tenant)
     await db.flush()
 
@@ -96,6 +97,8 @@ async def update_org(
         raise HTTPException(404, "Org not found")
     if body.name is not None:
         org.name = body.name
+    if body.logo_url is not None:
+        org.logo_url = body.logo_url
     if body.sso_enforced is not None:
         org.sso_enforced = body.sso_enforced
     await db.commit()

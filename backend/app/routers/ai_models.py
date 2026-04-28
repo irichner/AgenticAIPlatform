@@ -10,6 +10,7 @@ import json
 import os
 
 from app.dependencies import get_db
+from app.auth.dependencies import resolve_org
 from app.models.ai_model import AiModel
 from app.schemas.ai_model import AiModelCreate, AiModelUpdate, AiModelOut
 
@@ -167,19 +168,28 @@ async def pull_ollama_model(model: str, base_url: str | None = None):
 
 
 @router.get("", response_model=list[AiModelOut])
-async def list_ai_models(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(AiModel).order_by(AiModel.name))
+async def list_ai_models(
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(AiModel).where(AiModel.org_id == org_id).order_by(AiModel.name)
+    )
     return [AiModelOut.from_orm_mask(m) for m in result.scalars().all()]
 
 
 @router.post("", response_model=AiModelOut, status_code=status.HTTP_201_CREATED)
-async def create_ai_model(payload: AiModelCreate, db: AsyncSession = Depends(get_db)):
+async def create_ai_model(
+    payload: AiModelCreate,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
     if payload.type != "local":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="API models are managed automatically. Connect a provider via Admin → AI → Providers.",
         )
-    model = AiModel(**payload.model_dump())
+    model = AiModel(org_id=org_id, **payload.model_dump())
     db.add(model)
     await db.commit()
     await db.refresh(model)
@@ -187,8 +197,15 @@ async def create_ai_model(payload: AiModelCreate, db: AsyncSession = Depends(get
 
 
 @router.patch("/{model_id}", response_model=AiModelOut)
-async def update_ai_model(model_id: UUID, payload: AiModelUpdate, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(AiModel).where(AiModel.id == model_id))
+async def update_ai_model(
+    model_id: UUID,
+    payload: AiModelUpdate,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(AiModel).where(AiModel.id == model_id, AiModel.org_id == org_id)
+    )
     model = result.scalar_one_or_none()
     if model is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI model not found")
@@ -207,10 +224,13 @@ async def update_ai_model(model_id: UUID, payload: AiModelUpdate, db: AsyncSessi
 @router.delete("/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_ai_model(
     model_id: UUID,
+    org_id: UUID = Depends(resolve_org),
     uninstall: bool = Query(False, description="Also delete model files from Ollama"),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(AiModel).where(AiModel.id == model_id))
+    result = await db.execute(
+        select(AiModel).where(AiModel.id == model_id, AiModel.org_id == org_id)
+    )
     model = result.scalar_one_or_none()
     if model is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI model not found")

@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.dependencies import get_db
+from app.auth.dependencies import resolve_org
 from app.models.mcp_server import McpServer
 from app.models.mcp_tool import McpTool
 from app.schemas.mcp_server import (
@@ -27,16 +28,26 @@ def _with_tools():
 
 
 @router.get("", response_model=list[McpServerOut])
-async def list_mcp_servers(db: AsyncSession = Depends(get_db)):
+async def list_mcp_servers(
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(
-        select(McpServer).options(_with_tools()).order_by(McpServer.name)
+        select(McpServer)
+        .options(_with_tools())
+        .where(McpServer.org_id == org_id)
+        .order_by(McpServer.name)
     )
     return result.scalars().all()
 
 
 @router.post("", response_model=McpServerOut, status_code=status.HTTP_201_CREATED)
-async def create_mcp_server(payload: McpServerCreate, db: AsyncSession = Depends(get_db)):
-    server = McpServer(**payload.model_dump())
+async def create_mcp_server(
+    payload: McpServerCreate,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    server = McpServer(org_id=org_id, **payload.model_dump())
     db.add(server)
     await db.commit()
     await db.refresh(server)
@@ -45,7 +56,11 @@ async def create_mcp_server(payload: McpServerCreate, db: AsyncSession = Depends
 
 
 @router.post("/import-openapi", response_model=McpServerOut, status_code=status.HTTP_201_CREATED)
-async def import_openapi_spec(payload: ImportOpenApiRequest, db: AsyncSession = Depends(get_db)):
+async def import_openapi_spec(
+    payload: ImportOpenApiRequest,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
     from app.services.openapi_importer import import_openapi
     try:
         server = await import_openapi(
@@ -57,6 +72,7 @@ async def import_openapi_spec(payload: ImportOpenApiRequest, db: AsyncSession = 
             description=payload.description,
             auth_config=payload.auth_config,
             slug=payload.slug,
+            org_id=org_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
@@ -70,10 +86,13 @@ async def import_openapi_spec(payload: ImportOpenApiRequest, db: AsyncSession = 
 
 @router.patch("/{server_id}", response_model=McpServerOut)
 async def update_mcp_server(
-    server_id: UUID, payload: McpServerUpdate, db: AsyncSession = Depends(get_db)
+    server_id: UUID,
+    payload: McpServerUpdate,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(McpServer).options(_with_tools()).where(McpServer.id == server_id)
+        select(McpServer).options(_with_tools()).where(McpServer.id == server_id, McpServer.org_id == org_id)
     )
     server = result.scalar_one_or_none()
     if server is None:
@@ -87,8 +106,14 @@ async def update_mcp_server(
 
 
 @router.delete("/{server_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_mcp_server(server_id: UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(McpServer).where(McpServer.id == server_id))
+async def delete_mcp_server(
+    server_id: UUID,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(McpServer).where(McpServer.id == server_id, McpServer.org_id == org_id)
+    )
     server = result.scalar_one_or_none()
     if server is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP server not found")
@@ -99,10 +124,14 @@ async def delete_mcp_server(server_id: UUID, db: AsyncSession = Depends(get_db))
 # ── Code generation (Phase 2) ─────────────────────────────────────────────────
 
 @router.post("/{server_id}/export", status_code=status.HTTP_200_OK)
-async def export_server_code(server_id: UUID, db: AsyncSession = Depends(get_db)):
+async def export_server_code(
+    server_id: UUID,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
     """Generate and return a downloadable zip of a stand-alone Python MCP project."""
     result = await db.execute(
-        select(McpServer).options(_with_tools()).where(McpServer.id == server_id)
+        select(McpServer).options(_with_tools()).where(McpServer.id == server_id, McpServer.org_id == org_id)
     )
     server = result.scalar_one_or_none()
     if server is None:
@@ -116,7 +145,6 @@ async def export_server_code(server_id: UUID, db: AsyncSession = Depends(get_db)
     from app.services.codegen import generate_project_zip
     zip_bytes = generate_project_zip(server)
 
-    # Record generation timestamp
     server.last_generated_at = datetime.now(timezone.utc)
     await db.commit()
 
@@ -131,7 +159,17 @@ async def export_server_code(server_id: UUID, db: AsyncSession = Depends(get_db)
 # ── Tool sub-resources ────────────────────────────────────────────────────────
 
 @router.get("/{server_id}/tools", response_model=list[McpToolOut])
-async def list_tools(server_id: UUID, db: AsyncSession = Depends(get_db)):
+async def list_tools(
+    server_id: UUID,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    # Verify server belongs to org
+    srv = await db.execute(
+        select(McpServer).where(McpServer.id == server_id, McpServer.org_id == org_id)
+    )
+    if not srv.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP server not found")
     result = await db.execute(
         select(McpTool).where(McpTool.server_id == server_id).order_by(McpTool.name)
     )
@@ -140,8 +178,18 @@ async def list_tools(server_id: UUID, db: AsyncSession = Depends(get_db)):
 
 @router.patch("/{server_id}/tools/{tool_id}", response_model=McpToolOut)
 async def update_tool(
-    server_id: UUID, tool_id: UUID, payload: McpToolUpdate, db: AsyncSession = Depends(get_db)
+    server_id: UUID,
+    tool_id: UUID,
+    payload: McpToolUpdate,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
 ):
+    # Verify server belongs to org
+    srv = await db.execute(
+        select(McpServer).where(McpServer.id == server_id, McpServer.org_id == org_id)
+    )
+    if not srv.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP server not found")
     result = await db.execute(
         select(McpTool).where(McpTool.id == tool_id, McpTool.server_id == server_id)
     )

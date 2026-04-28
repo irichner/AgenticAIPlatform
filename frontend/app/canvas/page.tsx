@@ -7,6 +7,8 @@ import { Server } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { CanvasView } from "@/components/canvas/CanvasView";
 import { api, type BusinessUnit, type Agent, type AgentGroup, type AiModel, type McpServer } from "@/lib/api";
+import { useAuth } from "@/contexts/auth";
+import { getOrgItem, setOrgItem, removeOrgItem } from "@/lib/org-storage";
 import { cn } from "@/lib/cn";
 
 // ── Shared field styles ───────────────────────────────────────────────────────
@@ -385,7 +387,7 @@ function AgentCreatePanel({ businessUnits, groups, aiModels, mcpServers, onClose
   );
 }
 
-const AGENT_FORM_KEY = (id: string) => `lanara-agent-form-${id}`;
+const AGENT_FORM_SUBKEY = (id: string) => `agent-form:${id}`;
 
 // ── Agent properties panel ────────────────────────────────────────────────────
 
@@ -401,6 +403,8 @@ interface AgentPropertiesPanelProps {
 }
 
 function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpServers, onClose, onUpdated, onRun }: AgentPropertiesPanelProps) {
+  const { currentOrg } = useAuth();
+  const orgId = currentOrg?.id ?? null;
   const [name, setName]               = useState(agent.name);
   const [description, setDescription] = useState(agent.description ?? "");
   const [buId, setBuId]               = useState(agent.business_unit_id);
@@ -440,7 +444,7 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
     promptFromStorage.current = false;
     setError(null);
     try {
-      const raw = localStorage.getItem(AGENT_FORM_KEY(agent.id));
+      const raw = getOrgItem(orgId, AGENT_FORM_SUBKEY(agent.id));
       if (raw) {
         const s = JSON.parse(raw);
         setName(s.name         ?? agent.name);
@@ -475,8 +479,9 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
   // Auto-save every form change so it survives navigation.
   useEffect(() => {
     try {
-      localStorage.setItem(
-        AGENT_FORM_KEY(agent.id),
+      setOrgItem(
+        orgId,
+        AGENT_FORM_SUBKEY(agent.id),
         JSON.stringify({ name, description, buId, groupId, modelId, status, prompt, mcpIds }),
       );
     } catch { /* ignore */ }
@@ -542,7 +547,7 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
         prompt: prompt.trim() || undefined,
         mcp_server_ids: mcpIds,
       });
-      try { localStorage.removeItem(AGENT_FORM_KEY(agent.id)); } catch { /* ignore */ }
+      try { removeOrgItem(orgId, AGENT_FORM_SUBKEY(agent.id)); } catch { /* ignore */ }
       onUpdated();
     } catch (err) {
       setError(String(err));
@@ -774,13 +779,15 @@ type RightPanel =
   | { type: "run"; agentId: string }
   | null;
 
-const CANVAS_PANEL_KEY = "lanara-canvas-panel";
-const CANVAS_UNIT_KEY  = "lanara-canvas-unit";
+const CANVAS_PANEL_SUBKEY = "canvas-panel";
+const CANVAS_UNIT_SUBKEY  = "canvas-unit";
 
 function CanvasPageInner() {
   const searchParams = useSearchParams();
   const router       = useRouter();
   const unitFilter   = searchParams.get("unit");
+  const { currentOrg } = useAuth();
+  const orgKey = currentOrg?.id ?? null;
 
   const [rightPanel, setRightPanel] = useState<RightPanel>(
     searchParams.get("new") === "true" ? { type: "create" } : null,
@@ -790,65 +797,67 @@ function CanvasPageInner() {
     if (searchParams.get("new") === "true") setRightPanel({ type: "create" });
   }, [searchParams]);
 
-  // On mount: restore unit filter from localStorage if URL has none
+  // Restore unit filter from org-scoped storage if URL has none
   useEffect(() => {
-    if (searchParams.get("unit")) return;
+    if (searchParams.get("unit") || !orgKey) return;
     try {
-      const saved = localStorage.getItem(CANVAS_UNIT_KEY);
+      const saved = getOrgItem(orgKey, CANVAS_UNIT_SUBKEY);
       if (saved) router.replace(`/canvas?unit=${encodeURIComponent(saved)}`);
     } catch { /* ignore */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [orgKey]);
 
   // Save unit filter whenever it changes
   useEffect(() => {
+    if (!orgKey) return;
     try {
-      if (unitFilter) localStorage.setItem(CANVAS_UNIT_KEY, unitFilter);
+      if (unitFilter) setOrgItem(orgKey, CANVAS_UNIT_SUBKEY, unitFilter);
     } catch { /* ignore */ }
-  }, [unitFilter]);
+  }, [unitFilter, orgKey]);
 
-  // On mount: restore right panel from localStorage (skip ephemeral run state)
+  // Restore right panel from org-scoped storage (skip ephemeral run state)
   useEffect(() => {
-    if (searchParams.get("new") === "true") return;
+    if (searchParams.get("new") === "true" || !orgKey) return;
     try {
-      const raw = localStorage.getItem(CANVAS_PANEL_KEY);
+      const raw = getOrgItem(orgKey, CANVAS_PANEL_SUBKEY);
       if (!raw) return;
       const saved = JSON.parse(raw) as RightPanel;
       if (saved?.type !== "run") setRightPanel(saved);
     } catch { /* ignore */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [orgKey]);
 
   // Save right panel whenever it changes (skip ephemeral run state)
   useEffect(() => {
+    if (!orgKey) return;
     try {
       const toSave = rightPanel?.type === "run" ? null : rightPanel;
-      localStorage.setItem(CANVAS_PANEL_KEY, JSON.stringify(toSave));
+      setOrgItem(orgKey, CANVAS_PANEL_SUBKEY, JSON.stringify(toSave));
     } catch { /* ignore */ }
-  }, [rightPanel]);
+  }, [rightPanel, orgKey]);
 
   const { data: units = [], mutate: mutateUnits } = useSWR(
-    "business-units-canvas",
+    orgKey ? ["business-units-canvas", orgKey] : null,
     () => api.businessUnits.list(),
   );
 
   const { data: agents = [], mutate: mutateAgents } = useSWR(
-    ["agents-canvas", unitFilter],
-    ([, uid]) => api.agents.list(uid ?? undefined),
+    orgKey ? ["agents-canvas", orgKey, unitFilter] : null,
+    () => api.agents.list(unitFilter ?? undefined),
   );
 
   const { data: groups = [], mutate: mutateGroups } = useSWR(
-    "groups-canvas",
+    orgKey ? ["groups-canvas", orgKey] : null,
     () => api.groups.list(),
   );
 
   const { data: aiModels = [] } = useSWR(
-    "ai-models-canvas",
+    orgKey ? ["ai-models-canvas", orgKey] : null,
     () => api.aiModels.list(),
   );
 
   const { data: mcpServers = [] } = useSWR(
-    "mcp-servers-canvas",
+    orgKey ? ["mcp-servers-canvas", orgKey] : null,
     () => api.mcpServers.list(),
   );
 

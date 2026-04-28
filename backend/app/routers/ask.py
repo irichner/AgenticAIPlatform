@@ -11,8 +11,10 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from uuid import UUID
 
 from app.agents.llm import get_active_llm, get_llm_by_id
+from app.auth.dependencies import resolve_org
 from app.core.mcp_client import get_mcp_tools
 from app.dependencies import get_db
 from app.models.mcp_server import McpServer
@@ -293,7 +295,11 @@ async def _stream_xai_responses(llm, msgs: list, tools: list | None = None):
 
 
 @router.post("")
-async def ask_lanara(payload: AskRequest, db: AsyncSession = Depends(get_db)):
+async def ask_lanara(
+    payload: AskRequest,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
     async def event_stream():
         try:
             llm = await get_llm_by_id(db, payload.model_id) if payload.model_id else await get_active_llm(db)
@@ -303,7 +309,9 @@ async def ask_lanara(payload: AskRequest, db: AsyncSession = Depends(get_db)):
             return
 
         result = await db.execute(
-            select(McpServer).where(McpServer.enabled == True).order_by(McpServer.name)
+            select(McpServer)
+            .where(McpServer.enabled == True, McpServer.org_id == org_id)
+            .order_by(McpServer.name)
         )
         servers = result.scalars().all()
         tools = await get_mcp_tools(servers)

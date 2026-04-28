@@ -31,6 +31,7 @@ async def _send_via_resend(to: str, subject: str, html: str) -> None:
         )
         if resp.status_code not in (200, 201):
             logger.error("Resend error %s: %s", resp.status_code, resp.text)
+            raise RuntimeError(f"Email delivery failed ({resp.status_code})")
 
 
 async def _send_via_smtp(to: str, subject: str, html: str) -> None:

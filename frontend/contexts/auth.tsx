@@ -7,6 +7,7 @@ export interface MeOrg {
   id: string;
   name: string;
   slug: string;
+  logo_url: string | null;
   role_key: string;
 }
 
@@ -16,6 +17,8 @@ export interface MeUser {
   full_name: string | null;
   avatar_url: string | null;
   email_verified: boolean;
+  job_title: string | null;
+  onboarding_completed: boolean;
   orgs: MeOrg[];
   permissions: Record<string, string[]>; // "org:<id>" | "tenant:<id>" → permission IDs
 }
@@ -55,8 +58,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user?.orgs?.length) return;
     const stored = typeof window !== "undefined" ? localStorage.getItem("lanara_org_id") : null;
     const found = stored ? user.orgs.find((o) => o.id === stored) : null;
-    setCurrentOrgState(found ?? user.orgs[0]);
+    const org = found ?? user.orgs[0];
+    setCurrentOrgState(org);
+    if (typeof window !== "undefined") localStorage.setItem("lanara_org_id", org.id);
   }, [user]);
+
+  // Redirect new users with no org to the onboarding wizard
+  useEffect(() => {
+    if (isLoading || !user) return;
+    if (user.orgs.length === 0 && !user.onboarding_completed) {
+      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/onboarding")) {
+        window.location.href = "/onboarding";
+      }
+    }
+  }, [user, isLoading]);
 
   const setCurrentOrg = useCallback((org: MeOrg) => {
     setCurrentOrgState(org);

@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Text, DateTime, text
+from sqlalchemy import String, Text, DateTime, UniqueConstraint, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,11 +15,15 @@ if TYPE_CHECKING:
 
 class ApiProvider(Base, TimestampMixin):
     __tablename__ = "api_providers"
+    __table_args__ = (UniqueConstraint("org_id", "name", name="uq_api_providers_org_name"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    org_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("orgs.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     api_key: Mapped[str] = mapped_column(Text, nullable=False)
     base_url: Mapped[str | None] = mapped_column(Text, nullable=True)

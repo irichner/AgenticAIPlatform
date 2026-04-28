@@ -5,6 +5,7 @@ from sqlalchemy import select
 from uuid import UUID
 
 from app.dependencies import get_db
+from app.auth.dependencies import resolve_org
 from app.models.workflow import Workflow, WorkflowVersion
 from app.schemas.workflow import (
     WorkflowCreate,
@@ -18,50 +19,57 @@ from app.schemas.workflow import (
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
 
-# ── List ──────────────────────────────────────────────────────────────────────
-
 @router.get("", response_model=list[WorkflowListItem])
-async def list_workflows(db: AsyncSession = Depends(get_db)):
+async def list_workflows(
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(
-        select(Workflow).order_by(Workflow.updated_at.desc())
+        select(Workflow)
+        .where(Workflow.org_id == org_id)
+        .order_by(Workflow.updated_at.desc())
     )
     return result.scalars().all()
 
 
-# ── Create ────────────────────────────────────────────────────────────────────
-
 @router.post("", response_model=WorkflowOut, status_code=status.HTTP_201_CREATED)
 async def create_workflow(
     payload: WorkflowCreate,
+    org_id: UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
-    wf = Workflow(name=payload.name, graph=payload.graph)
+    wf = Workflow(org_id=org_id, name=payload.name, graph=payload.graph)
     db.add(wf)
     await db.commit()
     await db.refresh(wf)
     return wf
 
 
-# ── Get ───────────────────────────────────────────────────────────────────────
-
 @router.get("/{workflow_id}", response_model=WorkflowOut)
-async def get_workflow(workflow_id: UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+async def get_workflow(
+    workflow_id: UUID,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Workflow).where(Workflow.id == workflow_id, Workflow.org_id == org_id)
+    )
     wf = result.scalar_one_or_none()
     if wf is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
     return wf
 
 
-# ── Update ────────────────────────────────────────────────────────────────────
-
 @router.put("/{workflow_id}", response_model=WorkflowOut)
 async def update_workflow(
     workflow_id: UUID,
     payload: WorkflowUpdate,
+    org_id: UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+    result = await db.execute(
+        select(Workflow).where(Workflow.id == workflow_id, Workflow.org_id == org_id)
+    )
     wf = result.scalar_one_or_none()
     if wf is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
@@ -74,11 +82,15 @@ async def update_workflow(
     return wf
 
 
-# ── Delete ────────────────────────────────────────────────────────────────────
-
 @router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_workflow(workflow_id: UUID, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+async def delete_workflow(
+    workflow_id: UUID,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Workflow).where(Workflow.id == workflow_id, Workflow.org_id == org_id)
+    )
     wf = result.scalar_one_or_none()
     if wf is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
@@ -86,10 +98,18 @@ async def delete_workflow(workflow_id: UUID, db: AsyncSession = Depends(get_db))
     await db.commit()
 
 
-# ── Versions ──────────────────────────────────────────────────────────────────
-
 @router.get("/{workflow_id}/versions", response_model=list[WorkflowVersionOut])
-async def list_versions(workflow_id: UUID, db: AsyncSession = Depends(get_db)):
+async def list_versions(
+    workflow_id: UUID,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    # Verify ownership
+    wf = await db.execute(
+        select(Workflow).where(Workflow.id == workflow_id, Workflow.org_id == org_id)
+    )
+    if not wf.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
     result = await db.execute(
         select(WorkflowVersion)
         .where(WorkflowVersion.workflow_id == workflow_id)
@@ -106,9 +126,12 @@ async def list_versions(workflow_id: UUID, db: AsyncSession = Depends(get_db)):
 async def save_version(
     workflow_id: UUID,
     payload: WorkflowVersionCreate,
+    org_id: UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+    result = await db.execute(
+        select(Workflow).where(Workflow.id == workflow_id, Workflow.org_id == org_id)
+    )
     wf = result.scalar_one_or_none()
     if wf is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
@@ -136,10 +159,12 @@ async def save_version(
 async def restore_version(
     workflow_id: UUID,
     version_id: UUID,
+    org_id: UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
-    """Restore the workflow graph from a named version snapshot."""
-    wf_result = await db.execute(select(Workflow).where(Workflow.id == workflow_id))
+    wf_result = await db.execute(
+        select(Workflow).where(Workflow.id == workflow_id, Workflow.org_id == org_id)
+    )
     wf = wf_result.scalar_one_or_none()
     if wf is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")

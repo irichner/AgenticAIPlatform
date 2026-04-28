@@ -7,22 +7,48 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.dependencies import resolve_org
 from app.core.rbac import require_role
 from app.core.redis_client import get_redis
 from app.dependencies import get_db
 from app.models.approval_request import ApprovalRequest
+from app.models.business_unit import BusinessUnit
 from app.models.run import Run
 from app.schemas.approval import ApprovalDecision, ApprovalRequestOut
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
 
 
+async def _get_approval_for_org(
+    approval_id: uuid.UUID,
+    org_id: uuid.UUID,
+    db: AsyncSession,
+) -> ApprovalRequest:
+    result = await db.execute(
+        select(ApprovalRequest)
+        .join(Run, Run.id == ApprovalRequest.run_id)
+        .join(BusinessUnit, BusinessUnit.id == Run.business_unit_id)
+        .where(ApprovalRequest.id == approval_id, BusinessUnit.org_id == org_id)
+    )
+    approval = result.scalar_one_or_none()
+    if approval is None:
+        raise HTTPException(status_code=404, detail="Approval request not found")
+    return approval
+
+
 @router.get("", response_model=list[ApprovalRequestOut])
 async def list_approvals(
     approval_status: str | None = None,
+    org_id: uuid.UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(ApprovalRequest).order_by(ApprovalRequest.created_at.desc())
+    stmt = (
+        select(ApprovalRequest)
+        .join(Run, Run.id == ApprovalRequest.run_id)
+        .join(BusinessUnit, BusinessUnit.id == Run.business_unit_id)
+        .where(BusinessUnit.org_id == org_id)
+        .order_by(ApprovalRequest.created_at.desc())
+    )
     if approval_status:
         stmt = stmt.where(ApprovalRequest.status == approval_status)
     result = await db.execute(stmt)
@@ -32,13 +58,10 @@ async def list_approvals(
 @router.get("/{approval_id}", response_model=ApprovalRequestOut)
 async def get_approval(
     approval_id: uuid.UUID,
+    org_id: uuid.UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(ApprovalRequest).where(ApprovalRequest.id == approval_id))
-    approval = result.scalar_one_or_none()
-    if approval is None:
-        raise HTTPException(status_code=404, detail="Approval request not found")
-    return approval
+    return await _get_approval_for_org(approval_id, org_id, db)
 
 
 @router.post("/{approval_id}/decide", response_model=ApprovalRequestOut)
@@ -47,13 +70,11 @@ async def decide_approval(
     payload: ApprovalDecision,
     background_tasks: BackgroundTasks,
     request: Request,
+    org_id: uuid.UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
     _role: str = Depends(require_role(["admin", "editor"])),
 ):
-    result = await db.execute(select(ApprovalRequest).where(ApprovalRequest.id == approval_id))
-    approval = result.scalar_one_or_none()
-    if approval is None:
-        raise HTTPException(status_code=404, detail="Approval request not found")
+    approval = await _get_approval_for_org(approval_id, org_id, db)
     if approval.status != "pending":
         raise HTTPException(status_code=400, detail=f"Approval is already '{approval.status}'")
 

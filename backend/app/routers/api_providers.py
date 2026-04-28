@@ -6,6 +6,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_db
+from app.auth.dependencies import resolve_org
 from app.models.api_provider import ApiProvider
 from app.models.ai_model import AiModel
 from app.schemas.api_provider import ApiProviderConnect, ApiProviderOut
@@ -29,8 +30,15 @@ async def _with_count(db: AsyncSession, provider: ApiProvider) -> ApiProviderOut
 
 
 @router.get("", response_model=list[ApiProviderOut])
-async def list_api_providers(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(ApiProvider).order_by(ApiProvider.display_name))
+async def list_api_providers(
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(ApiProvider)
+        .where(ApiProvider.org_id == org_id)
+        .order_by(ApiProvider.display_name)
+    )
     providers = result.scalars().all()
     return [await _with_count(db, p) for p in providers]
 
@@ -38,10 +46,11 @@ async def list_api_providers(db: AsyncSession = Depends(get_db)):
 @router.post("", response_model=ApiProviderOut, status_code=status.HTTP_201_CREATED)
 async def connect_api_provider(
     payload: ApiProviderConnect,
+    org_id: UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        provider = await connect_provider(db, payload)
+        provider = await connect_provider(db, payload, org_id=org_id)
     except ProviderAuthError:
         raise HTTPException(status_code=401, detail="Invalid API key — check your credentials and try again")
     except ProviderNetworkError as exc:
@@ -55,9 +64,12 @@ async def connect_api_provider(
 @router.post("/{provider_id}/sync", response_model=ApiProviderOut)
 async def sync_api_provider(
     provider_id: UUID,
+    org_id: UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(ApiProvider).where(ApiProvider.id == provider_id))
+    result = await db.execute(
+        select(ApiProvider).where(ApiProvider.id == provider_id, ApiProvider.org_id == org_id)
+    )
     provider = result.scalar_one_or_none()
     if provider is None:
         raise HTTPException(status_code=404, detail="Provider not found")
@@ -68,9 +80,12 @@ async def sync_api_provider(
 @router.delete("/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def disconnect_api_provider(
     provider_id: UUID,
+    org_id: UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(ApiProvider).where(ApiProvider.id == provider_id))
+    result = await db.execute(
+        select(ApiProvider).where(ApiProvider.id == provider_id, ApiProvider.org_id == org_id)
+    )
     provider = result.scalar_one_or_none()
     if provider is None:
         raise HTTPException(status_code=404, detail="Provider not found")

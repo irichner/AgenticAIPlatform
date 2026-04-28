@@ -17,7 +17,7 @@ from app.models.tenant_model import OrgTenant
 from app.models.membership import OrgMembership, TenantMembership
 from app.models.role import Role
 from app.models.audit_log import AuditLog
-from app.schemas.tenant_schema import TenantCreate, TenantOut
+from app.schemas.tenant_schema import TenantCreate, TenantUpdate, TenantOut
 from app.schemas.member import InviteRequest, MemberOut, MemberRoleUpdate
 import os
 
@@ -57,6 +57,24 @@ async def create_tenant(
     await db.commit()
     await db.refresh(tenant)
     await _audit(db, ctx, "tenant.create", "tenant", str(tenant.id))
+    return tenant
+
+
+@router.patch("/{org_id}/tenants/{tenant_id}", response_model=TenantOut)
+async def update_tenant(
+    tenant_id: UUID,
+    body: TenantUpdate,
+    ctx: AuthContext = Depends(require_permission(P.ORG_SETTINGS_WRITE, scope="org")),
+    db: AsyncSession = Depends(get_db),
+) -> TenantOut:
+    tenant = await db.get(OrgTenant, tenant_id)
+    if not tenant or tenant.org_id != ctx.scope_id:
+        raise HTTPException(404, "Tenant not found")
+    if body.name is not None:
+        tenant.name = body.name
+    await db.commit()
+    await db.refresh(tenant)
+    await _audit(db, ctx, "tenant.update", "tenant", str(tenant_id))
     return tenant
 
 

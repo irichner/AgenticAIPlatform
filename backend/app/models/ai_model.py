@@ -6,6 +6,7 @@ from sqlalchemy import String, Text, Boolean, Integer, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+
 from app.models.base import Base, TimestampMixin
 
 if TYPE_CHECKING:
@@ -17,6 +18,9 @@ class AiModel(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    org_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("orgs.id", ondelete="CASCADE"), nullable=True, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     type: Mapped[str] = mapped_column(String(50), nullable=False, server_default="api")
