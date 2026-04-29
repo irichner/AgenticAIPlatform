@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
+import { useAuth } from "@/contexts/auth";
 
 const OAUTH_ERRORS: Record<string, string> = {
   google_denied: "Google sign-in was cancelled.",
@@ -12,6 +13,8 @@ const OAUTH_ERRORS: Record<string, string> = {
 
 function LoginForm() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [error, setError] = useState(() => {
@@ -19,6 +22,15 @@ function LoginForm() {
     return code ? (OAUTH_ERRORS[code] ?? "Something went wrong.") : "";
   });
   const [loading, setLoading] = useState(false);
+
+  // If the user is already authenticated (e.g. session recovered after restart),
+  // send them to where they were trying to go, or the dashboard.
+  useEffect(() => {
+    if (!authLoading && user) {
+      const next = searchParams.get("next");
+      router.replace(next && next.startsWith("/") ? next : "/dashboard");
+    }
+  }, [user, authLoading, searchParams, router]);
 
   useEffect(() => {
     const code = searchParams.get("error");

@@ -210,6 +210,13 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     body: body !== undefined ? JSON.stringify(body) : undefined,
     cache: "no-store",
   });
+  if (res.status === 401) {
+    // Session expired or invalid — send to login regardless of which endpoint fired it
+    if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+      window.location.href = "/login";
+    }
+    throw new Error("Unauthorized");
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
     throw new Error(`${method} ${path} → ${res.status}: ${text}`);

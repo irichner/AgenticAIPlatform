@@ -47,8 +47,10 @@ async function fetchMe(): Promise<MeUser | null> {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { data: user, isLoading, mutate } = useSWR<MeUser | null>("/api/auth/me", fetchMe, {
     dedupingInterval: 60_000,
-    revalidateOnFocus: false,
-    shouldRetryOnError: false,
+    revalidateOnFocus: true,   // re-check session when user tabs back in
+    shouldRetryOnError: true,  // retry on network errors (e.g. backend restarting)
+    errorRetryCount: 5,
+    errorRetryInterval: 3_000, // 3 s between retries
   });
 
   const [currentOrg, setCurrentOrgState] = useState<MeOrg | null>(null);
