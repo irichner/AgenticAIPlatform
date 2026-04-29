@@ -28,7 +28,11 @@ const MONTHS = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
-const fetcher = (url: string) => fetch(url, { credentials: "include" }).then((r) => r.json());
+const fetcher = (url: string) =>
+  fetch(url, {
+    credentials: "include",
+    headers: { "X-Org-Id": localStorage.getItem("lanara_org_id") || "" },
+  }).then((r) => r.json());
 
 function formatArr(n: number) {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
@@ -119,8 +123,8 @@ export default function LeaderboardPage() {
     { refreshInterval: 60_000 },
   );
 
-  // Merge live updates into display
-  const entries = liveEntries ?? initialData ?? [];
+  // Merge live updates into display — guard against error responses (non-array)
+  const entries = liveEntries ?? (Array.isArray(initialData) ? initialData : []);
 
   // Highlight newly updated rep for 4 seconds
   const flashUser = useCallback((userId: string) => {
@@ -144,7 +148,10 @@ export default function LeaderboardPage() {
         const res = await fetch("/api/leaderboard/stream", {
           credentials: "include",
           signal: ctrl.signal,
-          headers: { Accept: "text/event-stream" },
+          headers: {
+            Accept: "text/event-stream",
+            "X-Org-Id": localStorage.getItem("lanara_org_id") || "",
+          },
         });
 
         if (!res.ok || !res.body) return;

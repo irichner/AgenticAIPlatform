@@ -5,6 +5,8 @@ GET  /api/signals            — list signal events (for debugging/monitoring)
 GET  /api/signals/stats      — counts by status
 """
 from __future__ import annotations
+import os
+import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -13,11 +15,29 @@ from datetime import datetime, timezone
 
 from app.dependencies import get_db
 from app.auth.dependencies import resolve_org
-from app.models.signal_event import SignalEvent, IntegrationConfig
+from app.models.signals import Signal
+from app.models.integration_config import IntegrationConfig
 from pydantic import BaseModel
 from typing import Any
 
 router = APIRouter(prefix="/signals", tags=["signals"])
+
+# Shared secret required by all internal callers of /ingest.
+# Set MCP_INGEST_SECRET in env (same value must be passed as Bearer token).
+_INGEST_SECRET = os.getenv("MCP_INGEST_SECRET", "")
+
+
+def _verify_ingest_auth(request: Request) -> None:
+    """Raise 401 if the caller doesn't present the correct ingest secret."""
+    if not _INGEST_SECRET:
+        # Dev mode: secret not configured → allow (same behaviour as before)
+        return
+    auth = request.headers.get("authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing ingest authorization")
+    token = auth.removeprefix("Bearer ").strip()
+    if not secrets.compare_digest(token, _INGEST_SECRET):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid ingest secret")
 
 
 class SignalIngestPayload(BaseModel):
@@ -46,8 +66,12 @@ async def ingest_signal(
     db: AsyncSession = Depends(get_db),
 ):
     """Internal endpoint for MCP servers to push raw signal events.
-    Authenticated via X-Org-Id header (MCP servers are trusted internal services).
+
+    Requires:
+      Authorization: Bearer <MCP_INGEST_SECRET>   (server-to-server)
+      X-Org-Id: <uuid>                             (org context)
     """
+    _verify_ingest_auth(request)
     org_id_str = request.headers.get("x-org-id")
     if not org_id_str:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "X-Org-Id header required")
@@ -56,7 +80,7 @@ async def ingest_signal(
     except ValueError:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid X-Org-Id")
 
-    event = SignalEvent(
+    event = Signal(
         org_id=org_id,
         source=payload.source,
         event_type=payload.event_type,
@@ -76,9 +100,9 @@ async def list_signals(
     limit: int = 50,
 ):
     result = await db.execute(
-        select(SignalEvent)
-        .where(SignalEvent.org_id == org_id)
-        .order_by(SignalEvent.created_at.desc())
+        select(Signal)
+        .where(Signal.org_id == org_id)
+        .order_by(Signal.created_at.desc())
         .limit(limit)
     )
     events = result.scalars().all()
@@ -102,9 +126,9 @@ async def signal_stats(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(SignalEvent.status, func.count(SignalEvent.id).label("count"))
-        .where(SignalEvent.org_id == org_id)
-        .group_by(SignalEvent.status)
+        select(Signal.status, func.count(Signal.id).label("count"))
+        .where(Signal.org_id == org_id)
+        .group_by(Signal.status)
     )
     rows = result.all()
     return {row.status: row.count for row in rows}

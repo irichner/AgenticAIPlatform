@@ -15,12 +15,13 @@ if TYPE_CHECKING:
 
 class McpRegistration(Base):
     __tablename__ = "mcp_registrations"
+    __table_args__ = {"schema": "lanara"}
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
     org_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("orgs.id", ondelete="CASCADE"), nullable=False, index=True
+        PGUUID(as_uuid=True), ForeignKey("lanara.orgs.id", ondelete="CASCADE"), nullable=False, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     mcp_url: Mapped[str] = mapped_column(Text, nullable=False)
@@ -49,12 +50,13 @@ class McpRegistration(Base):
 
 class McpToolPermission(Base):
     __tablename__ = "mcp_tool_permissions"
+    __table_args__ = {"schema": "lanara"}
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
     registration_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("mcp_registrations.id", ondelete="CASCADE"), nullable=False, index=True
+        PGUUID(as_uuid=True), ForeignKey("lanara.mcp_registrations.id", ondelete="CASCADE"), nullable=False, index=True
     )
     tool_name: Mapped[str] = mapped_column(String(255), nullable=False)
     allowed_roles: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
@@ -68,15 +70,16 @@ class McpToolPermission(Base):
 
 class McpIdempotencyOutcome(Base):
     __tablename__ = "mcp_idempotency_outcomes"
+    __table_args__ = {"schema": "lanara"}
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
     org_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("orgs.id", ondelete="CASCADE"), nullable=False
+        PGUUID(as_uuid=True), ForeignKey("lanara.orgs.id", ondelete="CASCADE"), nullable=False
     )
     registration_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("mcp_registrations.id", ondelete="CASCADE"), nullable=False
+        PGUUID(as_uuid=True), ForeignKey("lanara.mcp_registrations.id", ondelete="CASCADE"), nullable=False
     )
     tool_name: Mapped[str] = mapped_column(String(255), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(512), nullable=False)
@@ -91,10 +94,11 @@ class McpIdempotencyOutcome(Base):
 
 class McpRunSnapshot(Base):
     __tablename__ = "mcp_run_snapshots"
+    __table_args__ = {"schema": "lanara"}
 
     run_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True)
     org_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("orgs.id", ondelete="CASCADE"), nullable=False, index=True
+        PGUUID(as_uuid=True), ForeignKey("lanara.orgs.id", ondelete="CASCADE"), nullable=False, index=True
     )
     user_id: Mapped[uuid.UUID | None] = mapped_column(PGUUID(as_uuid=True), nullable=True)
     snapshot_json: Mapped[dict] = mapped_column(JSONB, nullable=False)

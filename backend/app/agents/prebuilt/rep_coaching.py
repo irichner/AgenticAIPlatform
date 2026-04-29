@@ -20,7 +20,6 @@ from uuid import UUID
 
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 
 async def _claude(prompt: str, max_tokens: int = 1500) -> str:
@@ -193,19 +192,14 @@ Return ONLY valid JSON, no markdown."""
 
 async def cache_coaching_insights(org_id: str, user_id: str, insights: dict) -> None:
     """Cache coaching insights in Redis for 24 hours."""
-    import redis.asyncio as aioredis
-    r = aioredis.from_url(REDIS_URL, decode_responses=True)
-    key = f"coaching:{org_id}:{user_id}"
-    async with r:
-        await r.setex(key, 86_400, json.dumps(insights))
+    from app.core.redis_client import get_redis
+    await get_redis().setex(f"coaching:{org_id}:{user_id}", 86_400, json.dumps(insights))
 
 
 async def get_cached_coaching(org_id: str, user_id: str) -> dict | None:
     """Retrieve cached coaching insights from Redis."""
-    import redis.asyncio as aioredis
-    r = aioredis.from_url(REDIS_URL, decode_responses=True)
-    async with r:
-        raw = await r.get(f"coaching:{org_id}:{user_id}")
+    from app.core.redis_client import get_redis
+    raw = await get_redis().get(f"coaching:{org_id}:{user_id}")
     if raw:
         try:
             return json.loads(raw)
@@ -225,8 +219,8 @@ async def run_coaching_loop() -> None:
         try:
             async with AsyncSessionLocal() as db:
                 result = await db.execute(text(
-                    "SELECT DISTINCT om.org_id, om.user_id FROM org_memberships om "
-                    "JOIN sessions s ON s.user_id = om.user_id "
+                    "SELECT DISTINCT om.org_id, om.user_id FROM lanara.org_memberships om "
+                    "JOIN lanara.sessions s ON s.user_id = om.user_id "
                     "WHERE s.expires_at > NOW() LIMIT 100"
                 ))
                 active_pairs = [(str(r[0]), str(r[1])) for r in result.fetchall()]

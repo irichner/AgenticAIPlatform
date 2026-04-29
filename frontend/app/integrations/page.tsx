@@ -2,9 +2,16 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import { Globe, CheckCircle2, Loader2, ExternalLink, X, Sparkles, Trash2 } from "lucide-react";
+import { Globe, CheckCircle2, Loader2, ExternalLink, X, Trash2, Clock } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { api } from "@/lib/api";
+
+const POLL_OPTIONS = [
+  { label: "5 minutes",  value: 5 },
+  { label: "15 minutes", value: 15 },
+  { label: "30 minutes", value: 30 },
+  { label: "1 hour",     value: 60 },
+];
 
 export default function IntegrationsPage() {
   return (
@@ -23,8 +30,7 @@ export default function IntegrationsPage() {
           </section>
 
           <section className="space-y-4">
-            <h2 className="text-xs font-semibold text-text-3 uppercase tracking-widest">AI Processing</h2>
-            <EnrichPanel />
+            <h2 className="text-xs font-semibold text-text-3 uppercase tracking-widest">Data Quality</h2>
             <CleanupPanel />
           </section>
         </div>
@@ -42,6 +48,7 @@ function GooglePanel() {
   const [connecting,    setConnecting]    = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [connectError,  setConnectError]  = useState("");
+  const [savingInterval, setSavingInterval] = useState(false);
 
   const connect = async () => {
     setConnecting(true);
@@ -123,6 +130,18 @@ function GooglePanel() {
     }
   };
 
+  const saveInterval = async (minutes: number) => {
+    setSavingInterval(true);
+    try {
+      await api.integrations.google.updateSettings({ poll_interval_minutes: minutes });
+      mutate();
+    } finally {
+      setSavingInterval(false);
+    }
+  };
+
+  const currentInterval = status?.poll_interval_minutes ?? 5;
+
   return (
     <div className="rounded-xl border border-emerald/20 bg-emerald/5 p-5 space-y-4">
       <div className="flex items-center gap-3">
@@ -140,22 +159,49 @@ function GooglePanel() {
           <Loader2 className="w-3 h-3 animate-spin" /> Checking…
         </div>
       ) : status?.connected ? (
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald" />
-            <div>
-              <p className="text-xs font-medium text-emerald">Connected</p>
-              {status.email && <p className="text-xs text-text-3">{status.email}</p>}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald" />
+              <div>
+                <p className="text-xs font-medium text-emerald">Connected</p>
+                {status.email && <p className="text-xs text-text-3">{status.email}</p>}
+              </div>
+            </div>
+            <button
+              onClick={disconnect}
+              disabled={disconnecting}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-rose-400 hover:bg-rose-400/10 disabled:opacity-40 transition-colors"
+            >
+              {disconnecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
+              Disconnect
+            </button>
+          </div>
+
+          {/* Polling interval */}
+          <div className="border-t border-border pt-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Clock className="w-3.5 h-3.5 text-text-3" />
+              <p className="text-xs font-medium text-text-2">Check for new emails every</p>
+              {savingInterval && <Loader2 className="w-3 h-3 animate-spin text-text-3" />}
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {POLL_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => saveInterval(opt.value)}
+                  disabled={savingInterval}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+                    currentInterval === opt.value
+                      ? "bg-emerald/20 text-emerald border border-emerald/30"
+                      : "bg-surface-2 text-text-2 hover:bg-surface-1 border border-border"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
           </div>
-          <button
-            onClick={disconnect}
-            disabled={disconnecting}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-rose-400 hover:bg-rose-400/10 disabled:opacity-40 transition-colors"
-          >
-            {disconnecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
-            Disconnect
-          </button>
         </div>
       ) : (
         <div className="space-y-2">
@@ -221,55 +267,6 @@ function CleanupPanel() {
           {running
             ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Cleaning…</>
             : <><Trash2 className="w-3.5 h-3.5" /> Run Cleanup</>}
-        </button>
-        {result && <p className="text-xs text-emerald">{result}</p>}
-      </div>
-      {error && <p className="text-xs text-rose-400">{error}</p>}
-    </div>
-  );
-}
-
-function EnrichPanel() {
-  const [running, setRunning] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const run = async () => {
-    setRunning(true);
-    setResult(null);
-    setError(null);
-    try {
-      const res = await api.crm.activities.enrich();
-      setResult(res.message);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to start enrichment";
-      setError(msg);
-    } finally {
-      setRunning(false);
-    }
-  };
-
-  return (
-    <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 p-5 space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-lg bg-violet-500/15 flex items-center justify-center shrink-0">
-          <Sparkles className="w-5 h-5 text-violet-400" />
-        </div>
-        <div>
-          <p className="text-sm font-semibold text-text-1">Enrich Activities</p>
-          <p className="text-xs text-text-3">Run the Comms model over existing emails to generate summaries and fill in contact details.</p>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3">
-        <button
-          onClick={run}
-          disabled={running}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-violet-500/20 hover:bg-violet-500/35 text-violet-300 text-sm font-medium disabled:opacity-40 transition-colors"
-        >
-          {running
-            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Processing…</>
-            : <><Sparkles className="w-3.5 h-3.5" /> Run Enrichment</>}
         </button>
         {result && <p className="text-xs text-emerald">{result}</p>}
       </div>

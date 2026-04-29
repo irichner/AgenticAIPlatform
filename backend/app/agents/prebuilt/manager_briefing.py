@@ -160,7 +160,7 @@ async def run_manager_briefing_loop() -> None:
             async with AsyncSessionLocal() as db:
                 from sqlalchemy import select as sa_select, text
                 # Get all active orgs
-                result = await db.execute(text("SELECT id FROM orgs LIMIT 50"))
+                result = await db.execute(text("SELECT id FROM lanara.orgs LIMIT 50"))
                 org_ids = [str(r[0]) for r in result.fetchall()]
 
             for org_id in org_ids:

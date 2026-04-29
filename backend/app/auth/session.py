@@ -9,7 +9,7 @@ from app.core.redis_client import get_redis
 from app.models.session_model import Session
 
 _SESSION_TTL_DAYS = 30
-_REDIS_TTL_SECONDS = 60
+_REDIS_TTL_SECONDS = 86_400  # 24 h — matches rolling refresh threshold
 _REFRESH_THRESHOLD_HOURS = 24
 
 

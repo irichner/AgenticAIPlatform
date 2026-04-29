@@ -18,7 +18,7 @@ from app.models.membership import OrgMembership
 from app.models.role import Role
 from app.models.audit_log import AuditLog
 from app.schemas.org import OrgCreate, OrgUpdate, OrgOut
-from app.schemas.member import InviteRequest, MemberOut, MemberRoleUpdate
+from app.schemas.member import InviteRequest, MemberOut, MemberRoleUpdate, MemberLimitsUpdate
 import os
 
 router = APIRouter(prefix="/orgs", tags=["orgs"])
@@ -95,14 +95,20 @@ async def update_org(
     org = await db.get(Org, ctx.scope_id)
     if not org:
         raise HTTPException(404, "Org not found")
-    if body.name is not None:
-        org.name = body.name
-    if body.logo_url is not None:
-        org.logo_url = body.logo_url
-    if body.sso_enforced is not None:
-        org.sso_enforced = body.sso_enforced
+
+    rate_limits_changed = False
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(org, field, value)
+        if field in ("agent_runs_per_minute", "agent_runs_per_hour"):
+            rate_limits_changed = True
+
     await db.commit()
     await db.refresh(org)
+
+    if rate_limits_changed:
+        from app.agents.rate_limit import invalidate_limits_cache
+        await invalidate_limits_cache(org.id)
+
     await _audit(db, ctx, "org.update", "org", str(org.id))
     return org
 
@@ -182,6 +188,28 @@ async def update_member_role(
     await _audit(db, ctx, "org.member.role_change", "user", str(user_id),
                  {"old_role": str(old_role_id), "new_role": str(body.role_id)})
     return {"detail": "Role updated"}
+
+
+@router.patch("/{org_id}/members/{user_id}/limits")
+async def update_member_limits(
+    user_id: UUID,
+    body: MemberLimitsUpdate,
+    ctx: AuthContext = Depends(require_permission(P.ORG_MEMBERS_INVITE, scope="org")),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    membership = await db.get(OrgMembership, (ctx.scope_id, user_id))
+    if not membership:
+        raise HTTPException(404, "Member not found")
+
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(membership, field, value)
+    await db.commit()
+
+    from app.agents.rate_limit import invalidate_limits_cache
+    await invalidate_limits_cache(ctx.scope_id, user_id)
+    await _audit(db, ctx, "org.member.limits_update", "user", str(user_id),
+                 {"runs_per_minute": body.agent_runs_per_minute, "runs_per_hour": body.agent_runs_per_hour})
+    return {"detail": "Limits updated"}
 
 
 @router.delete("/{org_id}/members/{user_id}")

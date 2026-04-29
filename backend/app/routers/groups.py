@@ -47,6 +47,7 @@ async def create_group(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Business unit not found")
 
     group = AgentGroup(
+        org_id=org_id,
         business_unit_id=payload.business_unit_id,
         name=payload.name,
         description=payload.description,

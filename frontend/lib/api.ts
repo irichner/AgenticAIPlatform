@@ -394,6 +394,56 @@ export interface DomainOut {
   verify_token: string | null;
 }
 
+// ── Agent scheduling types ────────────────────────────────────────────────────
+
+export interface AgentSchedule {
+  id: string;
+  org_id: string;
+  agent_id: string;
+  created_by: string | null;
+  name: string;
+  description: string | null;
+  schedule_type: "cron" | "interval" | "once";
+  cron_expression: string | null;
+  interval_seconds: number | null;
+  run_at: string | null;
+  timezone: string;
+  input_override: Record<string, unknown> | null;
+  enabled: boolean;
+  max_retries: number;
+  retry_delay_seconds: number;
+  timeout_seconds: number | null;
+  next_run_at: string | null;
+  last_run_at: string | null;
+  last_run_status: "running" | "success" | "failed" | "skipped" | null;
+  last_run_id: string | null;
+  run_count: number;
+  failure_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentDbPolicy {
+  id: string;
+  org_id: string;
+  agent_id: string;
+  name: string;
+  table_name: string;
+  allowed_operations: string[];
+  column_allowlist: string[] | null;
+  column_blocklist: string[] | null;
+  row_limit: number;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TableInfo {
+  table_name: string;
+  columns: { name: string; type: string; nullable: boolean }[];
+  has_org_id: boolean;
+}
+
 export const api = {
   auth: {
     me: () => req<{ id: string; email: string; full_name: string | null; orgs: OrgOut[]; permissions: Record<string, string[]> }>("GET", "/auth/me"),
@@ -654,6 +704,8 @@ export const api = {
     list: () => req<BusinessUnit[]>("GET", "/business-units"),
     create: (payload: { name: string; description?: string; parent_id?: string }) =>
       req<BusinessUnit>("POST", "/business-units", payload),
+    update: (id: string, payload: { name?: string; description?: string }) =>
+      req<BusinessUnit>("PATCH", `/business-units/${id}`, payload),
     delete: (buId: string) => req<void>("DELETE", `/business-units/${buId}`),
   },
 
@@ -735,8 +787,10 @@ export const api = {
   integrations: {
     google: {
       authUrl: () => req<{ auth_url: string }>("GET", "/integrations/google/auth-url"),
-      status: () => req<{ connected: boolean; email: string | null }>("GET", "/integrations/google/status"),
+      status: () => req<{ connected: boolean; email: string | null; poll_interval_minutes: number | null }>("GET", "/integrations/google/status"),
       disconnect: () => req<{ ok: boolean }>("DELETE", "/integrations/google"),
+      updateSettings: (body: { poll_interval_minutes: number | null }) =>
+        req<{ connected: boolean; email: string | null; poll_interval_minutes: number | null }>("PATCH", "/integrations/google/settings", body),
     },
   },
 
@@ -834,6 +888,68 @@ export const api = {
       enrich: () => req<{ queued: number; message: string }>("POST", "/activities/enrich"),
       cleanupSpam: () => req<{ activities_deleted: number; contacts_deleted: number; accounts_deleted: number; message: string }>("POST", "/activities/cleanup-spam"),
     },
+  },
+
+  schedules: {
+    list: (agentId?: string) =>
+      req<AgentSchedule[]>("GET", `/schedules${agentId ? `?agent_id=${agentId}` : ""}`),
+    create: (payload: {
+      agent_id: string;
+      name: string;
+      description?: string;
+      schedule_type: "cron" | "interval" | "once";
+      cron_expression?: string;
+      interval_seconds?: number;
+      run_at?: string;
+      timezone?: string;
+      input_override?: Record<string, unknown>;
+      enabled?: boolean;
+      max_retries?: number;
+      retry_delay_seconds?: number;
+      timeout_seconds?: number;
+    }) => req<AgentSchedule>("POST", "/schedules", payload),
+    update: (id: string, payload: Partial<{
+      name: string;
+      description: string;
+      cron_expression: string;
+      interval_seconds: number;
+      run_at: string;
+      timezone: string;
+      input_override: Record<string, unknown>;
+      enabled: boolean;
+      max_retries: number;
+      retry_delay_seconds: number;
+      timeout_seconds: number;
+    }>) => req<AgentSchedule>("PUT", `/schedules/${id}`, payload),
+    delete: (id: string) => req<void>("DELETE", `/schedules/${id}`),
+    toggle: (id: string) => req<AgentSchedule>("POST", `/schedules/${id}/toggle`),
+    trigger: (id: string) => req<{ run_id: string; schedule_id: string; triggered_at: string }>("POST", `/schedules/${id}/trigger`),
+  },
+
+  agentDbPolicies: {
+    tables: () => req<TableInfo[]>("GET", "/agent-db-policies/tables"),
+    list: (agentId?: string) =>
+      req<AgentDbPolicy[]>("GET", `/agent-db-policies${agentId ? `?agent_id=${agentId}` : ""}`),
+    create: (payload: {
+      agent_id: string;
+      name: string;
+      table_name: string;
+      allowed_operations: string[];
+      column_allowlist?: string[];
+      column_blocklist?: string[];
+      row_limit?: number;
+      enabled?: boolean;
+    }) => req<AgentDbPolicy>("POST", "/agent-db-policies", payload),
+    update: (id: string, payload: Partial<{
+      name: string;
+      allowed_operations: string[];
+      column_allowlist: string[];
+      column_blocklist: string[];
+      row_limit: number;
+      enabled: boolean;
+    }>) => req<AgentDbPolicy>("PUT", `/agent-db-policies/${id}`, payload),
+    delete: (id: string) => req<void>("DELETE", `/agent-db-policies/${id}`),
+    toggle: (id: string) => req<AgentDbPolicy>("POST", `/agent-db-policies/${id}/toggle`),
   },
 
   workflows: {

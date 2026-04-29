@@ -24,3 +24,8 @@ class MemberOut(BaseModel):
 
 class MemberRoleUpdate(BaseModel):
     role_id: UUID
+
+
+class MemberLimitsUpdate(BaseModel):
+    agent_runs_per_minute: int | None = None
+    agent_runs_per_hour: int | None = None

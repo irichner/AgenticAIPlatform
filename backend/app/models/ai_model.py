@@ -15,12 +15,13 @@ if TYPE_CHECKING:
 
 class AiModel(Base, TimestampMixin):
     __tablename__ = "ai_models"
+    __table_args__ = {"schema": "lanara"}
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
     org_id: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("orgs.id", ondelete="CASCADE"), nullable=True, index=True
+        PGUUID(as_uuid=True), ForeignKey("lanara.orgs.id", ondelete="CASCADE"), nullable=True, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     type: Mapped[str] = mapped_column(String(50), nullable=False, server_default="api")
@@ -34,7 +35,7 @@ class AiModel(Base, TimestampMixin):
     # Managed provider relationship
     provider_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("api_providers.id", ondelete="CASCADE"),
+        ForeignKey("lanara.api_providers.id", ondelete="CASCADE"),
         nullable=True,
     )
     context_window: Mapped[int | None] = mapped_column(Integer, nullable=True)

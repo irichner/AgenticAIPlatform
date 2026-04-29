@@ -1,11 +1,12 @@
 """Gmail polling agent — runs inside the backend process.
 
 Every GMAIL_POLL_INTERVAL_SECONDS (default 5 min) it:
-  1. Finds all orgs with a connected Google account (has refresh_token)
-  2. Gets or refreshes the access token
-  3. Fetches Gmail threads newer than the last-seen cursor
-  4. Deduplicates via Redis set of seen thread IDs
-  5. Creates a SignalEvent for each new thread → activity logger picks it up
+  1. Finds all users with a connected Google account (has refresh_token)
+  2. Gets or refreshes their access token
+  3. Fetches Gmail threads newer than that user's last-seen cursor
+  4. Deduplicates via per-user Redis set of seen thread IDs
+  5. Creates a SignalEvent for each new thread (tagged with user_id)
+     → activity logger picks it up and attributes activity to the right rep
 """
 from __future__ import annotations
 import asyncio
@@ -17,8 +18,9 @@ from uuid import UUID
 
 import httpx
 
+from app.core.redis_client import get_redis
+
 POLL_INTERVAL = int(os.getenv("GMAIL_POLL_INTERVAL_SECONDS", str(5 * 60)))
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 TOKEN_URI = "https://oauth2.googleapis.com/token"
@@ -70,60 +72,49 @@ async def _get_valid_token(row, db) -> str | None:
     return access_token
 
 
-# ── Cursor (Redis) ────────────────────────────────────────────────────────────
+# ── Cursor (Redis) — keyed per (org_id, user_id) ─────────────────────────────
 
-async def _get_cursor(org_id: str) -> int:
-    """Return epoch-seconds of last successful poll. Defaults to 7 days ago."""
-    import redis.asyncio as aioredis
-    r = aioredis.from_url(REDIS_URL, decode_responses=True)
-    async with r:
-        val = await r.get(f"gmail_poll_cursor:{org_id}")
+def _key(prefix: str, org_id: str, user_id: str) -> str:
+    return f"{prefix}:{org_id}:{user_id}"
+
+
+async def _get_cursor(org_id: str, user_id: str) -> int:
+    val = await get_redis().get(_key("gmail_poll_cursor", org_id, user_id))
     if val:
         return int(val)
     return int((datetime.now(timezone.utc) - timedelta(days=7)).timestamp())
 
 
-async def _set_cursor(org_id: str, epoch: int) -> None:
-    import redis.asyncio as aioredis
-    r = aioredis.from_url(REDIS_URL, decode_responses=True)
-    async with r:
-        await r.set(f"gmail_poll_cursor:{org_id}", str(epoch), ex=60 * 24 * 3600)
+async def _set_cursor(org_id: str, user_id: str, epoch: int) -> None:
+    await get_redis().set(_key("gmail_poll_cursor", org_id, user_id), str(epoch), ex=60 * 24 * 3600)
 
 
-async def _get_page_token(org_id: str) -> str | None:
-    import redis.asyncio as aioredis
-    r = aioredis.from_url(REDIS_URL, decode_responses=True)
-    async with r:
-        return await r.get(f"gmail_page_token:{org_id}")
+async def _get_page_token(org_id: str, user_id: str) -> str | None:
+    return await get_redis().get(_key("gmail_page_token", org_id, user_id))
 
 
-async def _set_page_token(org_id: str, token: str | None) -> None:
-    import redis.asyncio as aioredis
-    r = aioredis.from_url(REDIS_URL, decode_responses=True)
-    async with r:
-        if token:
-            await r.set(f"gmail_page_token:{org_id}", token, ex=7 * 24 * 3600)
-        else:
-            await r.delete(f"gmail_page_token:{org_id}")
+async def _set_page_token(org_id: str, user_id: str, token: str | None) -> None:
+    r = get_redis()
+    key = _key("gmail_page_token", org_id, user_id)
+    if token:
+        await r.set(key, token, ex=7 * 24 * 3600)
+    else:
+        await r.delete(key)
 
 
-async def _is_seen(org_id: str, thread_id: str) -> bool:
-    import redis.asyncio as aioredis
-    r = aioredis.from_url(REDIS_URL, decode_responses=True)
-    async with r:
-        return bool(await r.sismember(f"gmail_seen:{org_id}", thread_id))
+async def _is_seen(org_id: str, user_id: str, thread_id: str) -> bool:
+    return bool(await get_redis().sismember(_key("gmail_seen", org_id, user_id), thread_id))
 
 
-async def _mark_seen(org_id: str, thread_ids: list[str]) -> None:
+async def _mark_seen(org_id: str, user_id: str, thread_ids: list[str]) -> None:
     if not thread_ids:
         return
-    import redis.asyncio as aioredis
-    r = aioredis.from_url(REDIS_URL, decode_responses=True)
-    async with r:
-        pipe = r.pipeline()
-        pipe.sadd(f"gmail_seen:{org_id}", *thread_ids)
-        pipe.expire(f"gmail_seen:{org_id}", 90 * 24 * 3600)  # 90-day dedup window
-        await pipe.execute()
+    r = get_redis()
+    key = _key("gmail_seen", org_id, user_id)
+    pipe = r.pipeline()
+    pipe.sadd(key, *thread_ids)
+    pipe.expire(key, 90 * 24 * 3600)  # 90-day dedup window
+    await pipe.execute()
 
 
 # ── Gmail fetch ───────────────────────────────────────────────────────────────
@@ -141,7 +132,6 @@ async def _fetch_threads(
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=30,
         ) as client:
-            # Exclude spam, trash, and promotional bulk mail at the API level
             BASE_QUERY = "-in:spam -in:trash -category:promotions"
             params: dict = {"maxResults": max_results}
             if page_token:
@@ -195,11 +185,9 @@ def _build_signal_payload(thread: dict) -> dict:
     h_first = headers(first_msg)
     h_last = headers(last_msg)
 
-    # Option B: skip bulk/marketing email — any message with List-Unsubscribe is mass mail
     if any("list-unsubscribe" in headers(m) for m in messages):
         return {}
 
-    # Parse the RFC 2822 Date header from the last message
     raw_date = h_last.get("date", "")
     try:
         occurred_at = parsedate_to_datetime(raw_date).astimezone(timezone.utc).isoformat()
@@ -214,31 +202,32 @@ def _build_signal_payload(thread: dict) -> dict:
         "cc_email": h_last.get("cc", ""),
         "snippet": last_msg.get("snippet", ""),
         "message_count": len(messages),
-        "body": last_msg.get("snippet", ""),  # activity logger uses 'body' for Claude summary
+        "body": last_msg.get("snippet", ""),
         "occurred_at": occurred_at,
     }
 
 
-# ── Per-org poll ──────────────────────────────────────────────────────────────
+# ── Per-user poll ─────────────────────────────────────────────────────────────
 
-async def _poll_org(org_id: str, token_row, db) -> int:
-    """Poll Gmail for one org. Returns number of new signals created."""
-    from app.models.signal_event import SignalEvent
+async def _poll_user(org_id: str, user_id: str, token_row, db) -> int:
+    """Poll Gmail for one user. Returns number of new signals created."""
+    from app.models.signals import Signal
+    from app.db.rls import set_rls_org
+    await set_rls_org(db, org_id)
 
     access_token = await _get_valid_token(token_row, db)
     if not access_token:
         return 0
 
-    # Use stored pageToken if mid-backfill, otherwise start from cursor
-    page_token = await _get_page_token(org_id)
-    after_epoch = None if page_token else await _get_cursor(org_id)
+    page_token = await _get_page_token(org_id, user_id)
+    after_epoch = None if page_token else await _get_cursor(org_id, user_id)
 
     threads, next_page_token = await _fetch_threads(
         access_token, after_epoch=after_epoch, page_token=page_token
     )
     if not threads:
-        await _set_page_token(org_id, None)
-        await _set_cursor(org_id, int(datetime.now(timezone.utc).timestamp()))
+        await _set_page_token(org_id, user_id, None)
+        await _set_cursor(org_id, user_id, int(datetime.now(timezone.utc).timestamp()))
         return 0
 
     new_count = 0
@@ -248,14 +237,17 @@ async def _poll_org(org_id: str, token_row, db) -> int:
         thread_id = thread.get("id", "")
         if not thread_id:
             continue
-        if await _is_seen(org_id, thread_id):
+        if await _is_seen(org_id, user_id, thread_id):
             continue
 
         payload = _build_signal_payload(thread)
         if not payload:
             continue
 
-        event = SignalEvent(
+        # Tag the signal with user_id so the activity logger attributes it to the right rep
+        payload["rep_user_id"] = user_id
+
+        event = Signal(
             org_id=UUID(org_id),
             source="gmail",
             event_type="email_received",
@@ -268,17 +260,15 @@ async def _poll_org(org_id: str, token_row, db) -> int:
 
     if new_count > 0:
         await db.commit()
-        await _mark_seen(org_id, new_thread_ids)
+        await _mark_seen(org_id, user_id, new_thread_ids)
 
     if next_page_token:
-        # More pages remain — store token and leave cursor unchanged
-        await _set_page_token(org_id, next_page_token)
-        print(f"[gmail_poller] org={org_id} fetched {len(threads)} threads, more pages remain")
+        await _set_page_token(org_id, user_id, next_page_token)
+        print(f"[gmail_poller] org={org_id} user={user_id} fetched {len(threads)} threads, more pages remain")
     else:
-        # Caught up — clear token and advance cursor to now
-        await _set_page_token(org_id, None)
-        await _set_cursor(org_id, int(datetime.now(timezone.utc).timestamp()))
-        print(f"[gmail_poller] org={org_id} backfill complete, cursor at now")
+        await _set_page_token(org_id, user_id, None)
+        await _set_cursor(org_id, user_id, int(datetime.now(timezone.utc).timestamp()))
+        print(f"[gmail_poller] org={org_id} user={user_id} backfill complete, cursor at now")
 
     return new_count
 
@@ -286,7 +276,7 @@ async def _poll_org(org_id: str, token_row, db) -> int:
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
 async def run_gmail_poller_loop() -> None:
-    """Background loop: poll Gmail for all connected orgs every POLL_INTERVAL seconds."""
+    """Background loop: poll Gmail for all connected users every POLL_INTERVAL seconds."""
     from app.db.engine import AsyncSessionLocal
     from app.models.google_token import GoogleOAuthToken
     from sqlalchemy import select
@@ -297,26 +287,45 @@ async def run_gmail_poller_loop() -> None:
         try:
             async with AsyncSessionLocal() as db:
                 result = await db.execute(
-                    select(GoogleOAuthToken).where(GoogleOAuthToken.refresh_token.isnot(None))
+                    select(GoogleOAuthToken).where(
+                        GoogleOAuthToken.refresh_token.isnot(None),
+                        GoogleOAuthToken.user_id.isnot(None),
+                    )
                 )
                 token_rows = result.scalars().all()
 
             for token_row in token_rows:
-                if not token_row.org_id:
+                if not token_row.org_id or not token_row.user_id:
                     continue
                 try:
+                    oid = str(token_row.org_id)
+                    uid = str(token_row.user_id)
+
+                    # Respect the user's personal interval — skip if not due yet.
+                    # _get_cursor defaults to 7 days ago on first run, so cursor_age
+                    # starts very large and the first poll always runs.
+                    user_interval = (token_row.poll_interval_minutes * 60) if token_row.poll_interval_minutes else POLL_INTERVAL
+                    last_poll = await _get_cursor(oid, uid)
+                    now_epoch = int(datetime.now(timezone.utc).timestamp())
+                    if (now_epoch - last_poll) < user_interval:
+                        continue
+
                     async with AsyncSessionLocal() as db:
-                        # Re-fetch the row inside a fresh session for mutation
                         res = await db.execute(
                             select(GoogleOAuthToken).where(GoogleOAuthToken.id == token_row.id)
                         )
                         fresh_row = res.scalar_one_or_none()
-                        if fresh_row:
-                            count = await _poll_org(str(fresh_row.org_id), fresh_row, db)
+                        if fresh_row and fresh_row.user_id:
+                            count = await _poll_user(
+                                oid,
+                                uid,
+                                fresh_row,
+                                db,
+                            )
                             if count:
-                                print(f"[gmail_poller] org={fresh_row.org_id} ingested {count} new thread(s)")
+                                print(f"[gmail_poller] org={oid} user={uid} ingested {count} new thread(s)")
                 except Exception as e:
-                    print(f"[gmail_poller] error polling org {token_row.org_id}: {e}")
+                    print(f"[gmail_poller] error polling org={token_row.org_id} user={token_row.user_id}: {e}")
 
         except Exception as e:
             print(f"[gmail_poller] loop error: {e}")

@@ -9,12 +9,13 @@ from app.models.base import Base
 
 class Role(Base):
     __tablename__ = "roles"
+    __table_args__ = {"schema": "lanara"}
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
     org_id: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("orgs.id", ondelete="CASCADE"), nullable=True
+        PGUUID(as_uuid=True), ForeignKey("lanara.orgs.id", ondelete="CASCADE"), nullable=True
     )
     scope: Mapped[str] = mapped_column(String(16), nullable=False)
     key: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -26,7 +27,7 @@ class Role(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     created_by: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+        PGUUID(as_uuid=True), ForeignKey("lanara.users.id"), nullable=True
     )
 
     org: Mapped["Org | None"] = relationship(
@@ -39,22 +40,23 @@ class Role(Base):
 
 class RolePermission(Base):
     __tablename__ = "role_permissions"
+    __table_args__ = {"schema": "lanara"}
 
     role_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("roles.id", ondelete="CASCADE"),
+        ForeignKey("lanara.roles.id", ondelete="CASCADE"),
         primary_key=True,
     )
     permission_id: Mapped[str] = mapped_column(
         String(128),
-        ForeignKey("permissions.id", ondelete="RESTRICT"),
+        ForeignKey("lanara.permissions.id", ondelete="RESTRICT"),
         primary_key=True,
     )
     granted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     granted_by: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+        PGUUID(as_uuid=True), ForeignKey("lanara.users.id"), nullable=True
     )
 
     role: Mapped["Role"] = relationship("Role", back_populates="permissions")

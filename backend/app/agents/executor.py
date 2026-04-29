@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from langchain_core.messages import HumanMessage
 from sqlalchemy import select
 
+from app.agents.db_tools import build_db_tools
 from app.agents.graph import build_react_graph
 from app.agents.llm import get_active_llm
 from app.agents.prebuilt import get_prebuilt_graph
@@ -30,6 +31,7 @@ from app.core.rag import get_rag_context
 from app.core.redis_client import get_redis
 from app.models.agent import Agent, AgentVersion
 from app.models.approval_request import ApprovalRequest
+from app.models.business_unit import BusinessUnit
 from app.models.run import Run
 
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
@@ -91,7 +93,26 @@ async def execute_run(run_id: str) -> None:
                     "chunks_found": rag_context.count("["),
                 }))
 
-            tools = await get_mcp_tools(agent.mcp_servers or [])
+            bu_res = await db.execute(select(BusinessUnit).where(BusinessUnit.id == agent.business_unit_id))
+            bu = bu_res.scalar_one_or_none()
+            org_id = bu.org_id if bu else None
+
+            if org_id:
+                from app.agents.rate_limit import check_agent_run_rate, AgentRateLimitError
+                try:
+                    await check_agent_run_rate(org_id, user_id=run.triggered_by)
+                except AgentRateLimitError as rl_exc:
+                    run.status = "failed"
+                    run.error = str(rl_exc)
+                    await db.commit()
+                    await redis.publish(channel, json.dumps({
+                        "event": "error", "run_id": run_id, "error": str(rl_exc),
+                    }))
+                    return
+
+            mcp_tools = await get_mcp_tools(agent.mcp_servers or [])
+            db_agent_tools = await build_db_tools(str(agent.id), org_id, db) if org_id else []
+            tools = mcp_tools + db_agent_tools
 
             from app.core.checkpointer import get_checkpointer
             checkpointer = await get_checkpointer()
@@ -152,6 +173,7 @@ async def execute_run(run_id: str) -> None:
             # ── Handle HIL interrupt ──────────────────────────────────────────
             if interrupt_payload is not None:
                 approval = ApprovalRequest(
+                    org_id=org_id,
                     run_id=uuid.UUID(run_id),
                     agent_id=agent.id,
                     thread_id=run_id,
@@ -250,7 +272,27 @@ async def execute_run_resume(
 
         try:
             llm = await get_active_llm(db)
-            tools = await get_mcp_tools(agent.mcp_servers or [])
+
+            bu_res2 = await db.execute(select(BusinessUnit).where(BusinessUnit.id == agent.business_unit_id))
+            bu2 = bu_res2.scalar_one_or_none()
+            org_id2 = bu2.org_id if bu2 else None
+
+            if org_id2:
+                from app.agents.rate_limit import check_agent_run_rate, AgentRateLimitError
+                try:
+                    await check_agent_run_rate(org_id2, user_id=run.triggered_by)
+                except AgentRateLimitError as rl_exc:
+                    run.status = "failed"
+                    run.error = str(rl_exc)
+                    await db.commit()
+                    await redis.publish(channel, json.dumps({
+                        "event": "error", "run_id": run_id, "error": str(rl_exc),
+                    }))
+                    return
+
+            mcp_tools2 = await get_mcp_tools(agent.mcp_servers or [])
+            db_agent_tools2 = await build_db_tools(str(agent.id), org_id2, db) if org_id2 else []
+            tools = mcp_tools2 + db_agent_tools2
 
             agent_type = None
             if version and version.graph_definition:

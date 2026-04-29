@@ -12,13 +12,14 @@ if TYPE_CHECKING:
 
 class McpTool(Base, TimestampMixin):
     __tablename__ = "mcp_tools"
+    __table_args__ = {"schema": "lanara"}
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
     server_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("mcp_servers.id", ondelete="CASCADE"),
+        ForeignKey("lanara.mcp_servers.id", ondelete="CASCADE"),
         nullable=False,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)

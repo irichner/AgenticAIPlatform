@@ -9,7 +9,7 @@ from app.models.base import Base, TimestampMixin
 
 class User(Base, TimestampMixin):
     __tablename__ = "users"
-    __table_args__ = (UniqueConstraint("email", name="uq_users_email"),)
+    __table_args__ = (UniqueConstraint("email", name="uq_users_email"), {"schema": "lanara"})
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")

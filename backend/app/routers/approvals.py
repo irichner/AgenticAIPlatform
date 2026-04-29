@@ -12,7 +12,6 @@ from app.core.rbac import require_role
 from app.core.redis_client import get_redis
 from app.dependencies import get_db
 from app.models.approval_request import ApprovalRequest
-from app.models.business_unit import BusinessUnit
 from app.models.run import Run
 from app.schemas.approval import ApprovalDecision, ApprovalRequestOut
 
@@ -25,10 +24,10 @@ async def _get_approval_for_org(
     db: AsyncSession,
 ) -> ApprovalRequest:
     result = await db.execute(
-        select(ApprovalRequest)
-        .join(Run, Run.id == ApprovalRequest.run_id)
-        .join(BusinessUnit, BusinessUnit.id == Run.business_unit_id)
-        .where(ApprovalRequest.id == approval_id, BusinessUnit.org_id == org_id)
+        select(ApprovalRequest).where(
+            ApprovalRequest.id == approval_id,
+            ApprovalRequest.org_id == org_id,
+        )
     )
     approval = result.scalar_one_or_none()
     if approval is None:
@@ -44,9 +43,7 @@ async def list_approvals(
 ):
     stmt = (
         select(ApprovalRequest)
-        .join(Run, Run.id == ApprovalRequest.run_id)
-        .join(BusinessUnit, BusinessUnit.id == Run.business_unit_id)
-        .where(BusinessUnit.org_id == org_id)
+        .where(ApprovalRequest.org_id == org_id)
         .order_by(ApprovalRequest.created_at.desc())
     )
     if approval_status:

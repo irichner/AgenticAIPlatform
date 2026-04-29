@@ -114,7 +114,10 @@ async def create_agent(
 
     if payload.mcp_server_ids:
         mcp_result = await db.execute(
-            select(McpServer).where(McpServer.id.in_(payload.mcp_server_ids))
+            select(McpServer).where(
+                McpServer.id.in_(payload.mcp_server_ids),
+                McpServer.org_id == org_id,
+            )
         )
         agent.mcp_servers = list(mcp_result.scalars().all())
 
@@ -175,7 +178,10 @@ async def update_agent(
         if mcp_server_ids is not None:
             if mcp_server_ids:
                 mcp_result = await db.execute(
-                    select(McpServer).where(McpServer.id.in_(mcp_server_ids))
+                    select(McpServer).where(
+                        McpServer.id.in_(mcp_server_ids),
+                        McpServer.org_id == org_id,
+                    )
                 )
                 agent.mcp_servers = list(mcp_result.scalars().all())
             else:

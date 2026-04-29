@@ -1,11 +1,14 @@
 "use client";
 
 import { useState, useRef, Suspense, useEffect, useCallback } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { Server } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { CanvasView } from "@/components/canvas/CanvasView";
+import { SwarmList } from "@/components/canvas/SwarmList";
+import { AllSchedulesView } from "@/components/canvas/AllSchedulesView";
+import { AgentSchedulesTab } from "@/components/canvas/AgentSchedulesTab";
+import { AgentDbAccessTab } from "@/components/canvas/AgentDbAccessTab";
 import { api, type BusinessUnit, type Agent, type AgentGroup, type AiModel, type McpServer } from "@/lib/api";
 import { useAuth } from "@/contexts/auth";
 import { getOrgItem, setOrgItem, removeOrgItem } from "@/lib/org-storage";
@@ -138,14 +141,15 @@ interface AgentCreatePanelProps {
   groups: AgentGroup[];
   aiModels: AiModel[];
   mcpServers: McpServer[];
+  defaultBuId?: string;
   onClose: () => void;
   onCreated: () => void;
 }
 
-function AgentCreatePanel({ businessUnits, groups, aiModels, mcpServers, onClose, onCreated }: AgentCreatePanelProps) {
+function AgentCreatePanel({ businessUnits, groups, aiModels, mcpServers, defaultBuId, onClose, onCreated }: AgentCreatePanelProps) {
   const [name, setName]               = useState("");
   const [description, setDescription] = useState("");
-  const [buId, setBuId]               = useState(businessUnits[0]?.id ?? "");
+  const [buId, setBuId]               = useState(defaultBuId ?? businessUnits[0]?.id ?? "");
   const [groupId, setGroupId]         = useState<string>("");
   const [modelId, setModelId]         = useState<string>("");
   const [status, setStatus]           = useState<string>("draft");
@@ -261,15 +265,21 @@ function AgentCreatePanel({ businessUnits, groups, aiModels, mcpServers, onClose
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
             <label className={labelCls}>Swarm *</label>
-            <button
-              type="button"
-              onClick={() => { setCreatingSwarm((v) => !v); setNewSwarmName(""); }}
-              className="text-xs text-violet hover:text-violet/80 transition-colors"
-            >
-              {creatingSwarm ? "Cancel" : "+ New"}
-            </button>
+            {!defaultBuId && (
+              <button
+                type="button"
+                onClick={() => { setCreatingSwarm((v) => !v); setNewSwarmName(""); }}
+                className="text-xs text-violet hover:text-violet/80 transition-colors"
+              >
+                {creatingSwarm ? "Cancel" : "+ New"}
+              </button>
+            )}
           </div>
-          {creatingSwarm ? (
+          {defaultBuId ? (
+            <p className="text-sm text-text-1 bg-surface-2 border border-border rounded-xl px-3 py-2">
+              {allUnits.find((u) => u.id === defaultBuId)?.name ?? defaultBuId}
+            </p>
+          ) : creatingSwarm ? (
             <div className="flex gap-2">
               <input
                 autoFocus
@@ -402,9 +412,12 @@ interface AgentPropertiesPanelProps {
   onRun: (agentId: string) => void;
 }
 
+type AgentTab = "config" | "schedules" | "database";
+
 function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpServers, onClose, onUpdated, onRun }: AgentPropertiesPanelProps) {
   const { currentOrg } = useAuth();
   const orgId = currentOrg?.id ?? null;
+  const [activeTab, setActiveTab]      = useState<AgentTab>("config");
   const [name, setName]               = useState(agent.name);
   const [description, setDescription] = useState(agent.description ?? "");
   const [buId, setBuId]               = useState(agent.business_unit_id);
@@ -430,7 +443,6 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
   const effectiveGroups = [...allGroups, ...extraGroups];
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState<string | null>(null);
-  // True once localStorage has supplied the prompt so the versions effect doesn't overwrite it
   const promptFromStorage = useRef(false);
 
   const { data: versions } = useSWR(
@@ -438,8 +450,6 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
     ([, id]) => api.agents.versions(id),
   );
 
-  // Restore / reset all non-prompt fields when the active agent changes.
-  // Check localStorage first so unsaved edits survive navigation.
   useEffect(() => {
     promptFromStorage.current = false;
     setError(null);
@@ -470,13 +480,11 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
     setMcpIds(agent.mcp_servers?.map((m) => m.id) ?? []);
   }, [agent.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load prompt from the latest version — skip if already restored from localStorage.
   useEffect(() => {
     if (promptFromStorage.current) return;
     if (versions && versions.length > 0) setPrompt(versions[0].prompt ?? "");
   }, [versions]);
 
-  // Auto-save every form change so it survives navigation.
   useEffect(() => {
     try {
       setOrgItem(
@@ -561,12 +569,43 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
 
   return (
     <div className="w-96 flex flex-col glass border-l border-border h-full">
+      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
         <span className="text-sm font-semibold text-text-1">Agent Properties</span>
         <button onClick={onClose} className="text-text-3 hover:text-text-2 text-lg leading-none">×</button>
       </div>
 
-      <div className="flex flex-col gap-4 p-4 flex-1 overflow-y-auto">
+      {/* Tab bar */}
+      <div className="flex border-b border-border shrink-0">
+        {(["config", "schedules", "database"] as AgentTab[]).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={cn(
+              "flex-1 py-2 text-xs font-medium transition-colors capitalize",
+              activeTab === tab
+                ? "text-violet border-b-2 border-violet"
+                : "text-text-3 hover:text-text-2",
+            )}
+          >
+            {tab === "database" ? "DB Access" : tab.charAt(0).toUpperCase() + tab.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "schedules" && (
+        <div className="flex-1 overflow-y-auto">
+          <AgentSchedulesTab agentId={agent.id} />
+        </div>
+      )}
+
+      {activeTab === "database" && (
+        <div className="flex-1 overflow-y-auto">
+          <AgentDbAccessTab agentId={agent.id} />
+        </div>
+      )}
+
+      {activeTab === "config" && <div className="flex flex-col gap-4 p-4 flex-1 overflow-y-auto">
         <div className="flex flex-col gap-1.5">
           <label className={labelCls}>Name</label>
           <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
@@ -697,22 +736,24 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
         </div>
 
         {error && <p className="text-xs text-rose-400 bg-rose-500/10 rounded-lg px-3 py-2">{error}</p>}
-      </div>
+      </div>}
 
-      <div className="p-4 border-t border-border shrink-0 flex gap-2">
-        {status === "published" && (
-          <button
-            onClick={() => onRun(agent.id)}
-            className="px-3 py-2 rounded-xl bg-emerald/15 hover:bg-emerald/25 text-emerald text-sm font-medium transition-colors"
-          >
-            Run
+      {activeTab === "config" && (
+        <div className="p-4 border-t border-border shrink-0 flex gap-2">
+          {status === "published" && (
+            <button
+              onClick={() => onRun(agent.id)}
+              className="px-3 py-2 rounded-xl bg-emerald/15 hover:bg-emerald/25 text-emerald text-sm font-medium transition-colors"
+            >
+              Run
+            </button>
+          )}
+          <button onClick={onClose} className="flex-1 py-2 rounded-xl border border-border text-sm text-text-2 hover:text-text-1 hover:bg-surface-2 transition-colors">Cancel</button>
+          <button onClick={handleSave} disabled={saving || !name.trim()} className="flex-1 py-2 rounded-xl bg-violet/20 hover:bg-violet/35 disabled:opacity-40 text-violet text-sm font-medium transition-colors">
+            {saving ? "Saving…" : "Save"}
           </button>
-        )}
-        <button onClick={onClose} className="flex-1 py-2 rounded-xl border border-border text-sm text-text-2 hover:text-text-1 hover:bg-surface-2 transition-colors">Cancel</button>
-        <button onClick={handleSave} disabled={saving || !name.trim()} className="flex-1 py-2 rounded-xl bg-violet/20 hover:bg-violet/35 disabled:opacity-40 text-violet text-sm font-medium transition-colors">
-          {saving ? "Saving…" : "Save"}
-        </button>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -774,21 +815,21 @@ function RunDrawer({ agentId, onClose }: RunDrawerProps) {
 // ── Canvas page ───────────────────────────────────────────────────────────────
 
 type RightPanel =
-  | { type: "create" }
+  | { type: "create"; defaultBuId?: string }
   | { type: "properties"; agentId: string }
   | { type: "run"; agentId: string }
   | null;
 
+type PageTab = "agents" | "schedules";
+
 const CANVAS_PANEL_SUBKEY = "canvas-panel";
-const CANVAS_UNIT_SUBKEY  = "canvas-unit";
 
 function CanvasPageInner() {
   const searchParams = useSearchParams();
-  const router       = useRouter();
-  const unitFilter   = searchParams.get("unit");
   const { currentOrg } = useAuth();
   const orgKey = currentOrg?.id ?? null;
 
+  const [pageTab, setPageTab]   = useState<PageTab>("agents");
   const [rightPanel, setRightPanel] = useState<RightPanel>(
     searchParams.get("new") === "true" ? { type: "create" } : null,
   );
@@ -796,24 +837,6 @@ function CanvasPageInner() {
   useEffect(() => {
     if (searchParams.get("new") === "true") setRightPanel({ type: "create" });
   }, [searchParams]);
-
-  // Restore unit filter from org-scoped storage if URL has none
-  useEffect(() => {
-    if (searchParams.get("unit") || !orgKey) return;
-    try {
-      const saved = getOrgItem(orgKey, CANVAS_UNIT_SUBKEY);
-      if (saved) router.replace(`/canvas?unit=${encodeURIComponent(saved)}`);
-    } catch { /* ignore */ }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgKey]);
-
-  // Save unit filter whenever it changes
-  useEffect(() => {
-    if (!orgKey) return;
-    try {
-      if (unitFilter) setOrgItem(orgKey, CANVAS_UNIT_SUBKEY, unitFilter);
-    } catch { /* ignore */ }
-  }, [unitFilter, orgKey]);
 
   // Restore right panel from org-scoped storage (skip ephemeral run state)
   useEffect(() => {
@@ -842,8 +865,8 @@ function CanvasPageInner() {
   );
 
   const { data: agents = [], mutate: mutateAgents } = useSWR(
-    orgKey ? ["agents-canvas", orgKey, unitFilter] : null,
-    () => api.agents.list(unitFilter ?? undefined),
+    orgKey ? ["agents-canvas", orgKey] : null,
+    () => api.agents.list(),
   );
 
   const { data: groups = [], mutate: mutateGroups } = useSWR(
@@ -863,10 +886,6 @@ function CanvasPageInner() {
 
   const refresh = () => { mutateUnits(); mutateAgents(); mutateGroups(); };
 
-  const visibleUnits: BusinessUnit[] = unitFilter
-    ? units.filter((u: BusinessUnit) => u.id === unitFilter)
-    : units;
-
   const selectedAgent =
     rightPanel?.type === "properties" || rightPanel?.type === "run"
       ? (agents as Agent[]).find((a) => a.id === rightPanel.agentId) ?? null
@@ -875,10 +894,11 @@ function CanvasPageInner() {
   const rightPanelEl =
     rightPanel?.type === "create" ? (
       <AgentCreatePanel
-        businessUnits={visibleUnits.length > 0 ? visibleUnits : (units as BusinessUnit[])}
+        businessUnits={units as BusinessUnit[]}
         groups={groups as AgentGroup[]}
         aiModels={aiModels as AiModel[]}
         mcpServers={mcpServers as McpServer[]}
+        defaultBuId={rightPanel.defaultBuId}
         onClose={() => setRightPanel(null)}
         onCreated={() => { setRightPanel(null); refresh(); }}
       />
@@ -905,28 +925,45 @@ function CanvasPageInner() {
       <Sidebar />
 
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+        {/* Page-level tab bar */}
+        <div className="flex items-center gap-1 px-4 border-b border-border shrink-0 h-11">
+          {(["agents", "schedules"] as PageTab[]).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setPageTab(tab)}
+              className={cn(
+                "px-3 py-2 text-sm font-medium transition-colors capitalize rounded-lg",
+                pageTab === tab
+                  ? "text-violet bg-violet/8"
+                  : "text-text-3 hover:text-text-2 hover:bg-surface-2",
+              )}
+            >
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </button>
+          ))}
+        </div>
+
         <div className="flex flex-1 overflow-hidden">
-          {visibleUnits.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center text-text-3 text-sm">
-              No swarms found.
-            </div>
-          ) : (
-            <div className="flex-1">
-              <CanvasView
-                businessUnits={visibleUnits}
+          {pageTab === "agents" ? (
+            <div className="flex-1 overflow-hidden">
+              <SwarmList
                 agents={agents as Agent[]}
                 groups={groups as AgentGroup[]}
-                onRun={(id) => setRightPanel({ type: "run", agentId: id })}
+                selectedAgentId={
+                  rightPanel?.type === "properties" ? rightPanel.agentId : null
+                }
+                orgId={orgKey}
                 onSelectAgent={(id) => setRightPanel({ type: "properties", agentId: id })}
-                onDeselect={() => setRightPanel((p) => p?.type === "properties" ? null : p)}
-                onReassign={async (agentId, newBuId) => {
-                  try {
-                    await api.agents.update(agentId, { business_unit_id: newBuId });
-                    mutateAgents();
-                  } catch (err) {
-                    console.error("Reassign failed:", err);
-                  }
-                }}
+                onAddToSwarm={(buId) => setRightPanel({ type: "create", defaultBuId: buId })}
+                onRun={(id) => setRightPanel({ type: "run", agentId: id })}
+                onRefresh={refresh}
+              />
+            </div>
+          ) : (
+            <div className="flex-1 overflow-hidden">
+              <AllSchedulesView
+                agents={agents as Agent[]}
+                orgKey={orgKey}
               />
             </div>
           )}

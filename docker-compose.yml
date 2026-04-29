@@ -51,6 +51,8 @@ services:
       - DATABASE_URL=postgresql+asyncpg://lanara:${POSTGRES_PASSWORD:-lanara_supersecret}@postgres:5432/lanara
       - REDIS_URL=redis://redis:6379/0
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - SECRET_ENCRYPTION_KEY=${SECRET_ENCRYPTION_KEY}
+      - MCP_INGEST_SECRET=${MCP_INGEST_SECRET}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       - OLLAMA_BASE_URL=http://ollama:11434
       - ENV=development
@@ -68,6 +70,21 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+
+  mcp-postgres:
+    build:
+      context: ./mcp-servers/postgres
+      dockerfile: Dockerfile
+    container_name: lanara-mcp-postgres
+    environment:
+      - DATABASE_URL=postgresql://lanara:${POSTGRES_PASSWORD:-lanara_supersecret}@postgres:5432/lanara
+      - HOST=0.0.0.0
+      - PORT=8012
+    ports:
+      - "8012:8012"
+    depends_on:
+      postgres:
         condition: service_healthy
 
   mcp-slack:

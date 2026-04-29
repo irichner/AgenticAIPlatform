@@ -11,12 +11,13 @@ from app.models.base import Base, TimestampMixin
 
 class Workflow(Base, TimestampMixin):
     __tablename__ = "workflows"
+    __table_args__ = {"schema": "lanara"}
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
     org_id: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("orgs.id", ondelete="CASCADE"), nullable=True, index=True
+        PGUUID(as_uuid=True), ForeignKey("lanara.orgs.id", ondelete="CASCADE"), nullable=True, index=True
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False, server_default="Untitled Workflow")
     graph: Mapped[dict] = mapped_column(
@@ -25,7 +26,7 @@ class Workflow(Base, TimestampMixin):
     bpmn_xml: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
     created_by: Mapped[uuid.UUID | None] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        PGUUID(as_uuid=True), ForeignKey("lanara.users.id", ondelete="SET NULL"), nullable=True
     )
 
     workflow_versions: Mapped[list["WorkflowVersion"]] = relationship(
@@ -39,13 +40,13 @@ class Workflow(Base, TimestampMixin):
 
 class WorkflowVersion(Base):
     __tablename__ = "workflow_versions"
-    __table_args__ = (UniqueConstraint("workflow_id", "version", name="uq_workflow_version"),)
+    __table_args__ = (UniqueConstraint("workflow_id", "version", name="uq_workflow_version"), {"schema": "lanara"})
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
     workflow_id: Mapped[uuid.UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False, index=True
+        PGUUID(as_uuid=True), ForeignKey("lanara.workflows.id", ondelete="CASCADE"), nullable=False, index=True
     )
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)

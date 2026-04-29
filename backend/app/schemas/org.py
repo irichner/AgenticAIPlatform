@@ -15,6 +15,8 @@ class OrgUpdate(BaseModel):
     name: str | None = None
     logo_url: str | None = None
     sso_enforced: bool | None = None
+    agent_runs_per_minute: int | None = None
+    agent_runs_per_hour: int | None = None
 
 
 class OrgOut(BaseModel):
@@ -23,6 +25,8 @@ class OrgOut(BaseModel):
     slug: str
     logo_url: str | None = None
     sso_enforced: bool
+    agent_runs_per_minute: int | None = None
+    agent_runs_per_hour: int | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

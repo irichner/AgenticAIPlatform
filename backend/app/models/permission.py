@@ -7,6 +7,7 @@ from app.models.base import Base
 
 class Permission(Base):
     __tablename__ = "permissions"
+    __table_args__ = {"schema": "lanara"}
 
     id: Mapped[str] = mapped_column(String(128), primary_key=True)
     scope: Mapped[str] = mapped_column(String(16), nullable=False)

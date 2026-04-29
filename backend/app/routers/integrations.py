@@ -1,4 +1,4 @@
-"""Google Account OAuth integration endpoints (Drive + Gmail)."""
+"""Google Account OAuth integration endpoints (Drive + Gmail) — per-user tokens."""
 from __future__ import annotations
 import os
 import json
@@ -7,13 +7,15 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.auth.dependencies import resolve_org
+from app.auth.dependencies import resolve_org, current_user
 from app.dependencies import get_db
 from app.models.google_token import GoogleOAuthToken
+from app.models.user import User
 
 router = APIRouter(prefix="/integrations/google", tags=["integrations"])
 
@@ -48,13 +50,18 @@ def _client_config() -> dict:
     }
 
 
-async def _get_or_create_token_row(db: AsyncSession, org_id: UUID) -> GoogleOAuthToken:
+async def _get_or_create_token_row(
+    db: AsyncSession, org_id: UUID, user_id: UUID
+) -> GoogleOAuthToken:
     result = await db.execute(
-        select(GoogleOAuthToken).where(GoogleOAuthToken.org_id == org_id).limit(1)
+        select(GoogleOAuthToken).where(
+            GoogleOAuthToken.org_id == org_id,
+            GoogleOAuthToken.user_id == user_id,
+        ).limit(1)
     )
     row = result.scalar_one_or_none()
     if row is None:
-        row = GoogleOAuthToken(org_id=org_id)
+        row = GoogleOAuthToken(org_id=org_id, user_id=user_id)
         db.add(row)
     return row
 
@@ -62,9 +69,10 @@ async def _get_or_create_token_row(db: AsyncSession, org_id: UUID) -> GoogleOAut
 @router.get("/auth-url")
 async def get_auth_url(
     org_id: UUID = Depends(resolve_org),
+    user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate a Google OAuth authorization URL."""
+    """Generate a Google OAuth authorization URL for the current user."""
     if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
         raise HTTPException(
             status_code=400,
@@ -73,9 +81,8 @@ async def get_auth_url(
     try:
         from google_auth_oauthlib.flow import Flow
         random_state = secrets.token_urlsafe(32)
-        # Embed org_id in the state string so the callback can identify which org to update.
-        # Google passes this value back verbatim, so we can recover it without session state.
-        google_state = f"{random_state}|{str(org_id)}"
+        # State encodes: "{random}|{org_id}|{user_id}" so the callback can restore context.
+        google_state = f"{random_state}|{str(org_id)}|{str(user.id)}"
         flow = Flow.from_client_config(
             _client_config(), scopes=SCOPES, redirect_uri=GOOGLE_REDIRECT_URI
         )
@@ -89,8 +96,7 @@ async def get_auth_url(
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to build auth URL: {exc}")
 
-    row = await _get_or_create_token_row(db, org_id)
-    # Store only the random part for state validation; org_id is on the row itself
+    row = await _get_or_create_token_row(db, org_id, user.id)
     row.oauth_state = json.dumps({"state": random_state, "code_verifier": code_verifier})
     await db.commit()
 
@@ -135,28 +141,40 @@ async def oauth_callback(
     if not code:
         return HTMLResponse(error_script("No authorization code received"))
 
-    # Extract org_id and random_state from the combined state string "{random}|{org_id}"
+    # Extract "{random}|{org_id}|{user_id}" from state
     random_state = state
     callback_org_id: UUID | None = None
+    callback_user_id: UUID | None = None
     if state and "|" in state:
-        parts = state.rsplit("|", 1)
+        parts = state.split("|")
         random_state = parts[0]
-        try:
-            callback_org_id = UUID(parts[1])
-        except ValueError:
-            pass
+        if len(parts) >= 2:
+            try:
+                callback_org_id = UUID(parts[1])
+            except ValueError:
+                pass
+        if len(parts) >= 3:
+            try:
+                callback_user_id = UUID(parts[2])
+            except ValueError:
+                pass
 
-    # Find the pending token row — prefer matching by org_id, fall back to oauth_state match
+    # Find the pending token row by (org_id, user_id) when both are known
     row: GoogleOAuthToken | None = None
-    if callback_org_id:
+    if callback_org_id and callback_user_id:
         res = await db.execute(
-            select(GoogleOAuthToken).where(GoogleOAuthToken.org_id == callback_org_id).limit(1)
+            select(GoogleOAuthToken).where(
+                GoogleOAuthToken.org_id == callback_org_id,
+                GoogleOAuthToken.user_id == callback_user_id,
+            ).limit(1)
         )
         row = res.scalar_one_or_none()
 
-    if row is None:
-        # Fallback: find any row whose oauth_state matches the random_state portion
-        res = await db.execute(select(GoogleOAuthToken))
+    if row is None and callback_org_id:
+        # Fallback: match by org_id + oauth_state value
+        res = await db.execute(
+            select(GoogleOAuthToken).where(GoogleOAuthToken.org_id == callback_org_id)
+        )
         for candidate in res.scalars().all():
             if not candidate.oauth_state:
                 continue
@@ -225,25 +243,37 @@ async def oauth_callback(
 @router.get("/status")
 async def get_status(
     org_id: UUID = Depends(resolve_org),
+    user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return Google Drive connection status."""
+    """Return Google connection status for the current user."""
     result = await db.execute(
-        select(GoogleOAuthToken).where(GoogleOAuthToken.org_id == org_id).limit(1)
+        select(GoogleOAuthToken).where(
+            GoogleOAuthToken.org_id == org_id,
+            GoogleOAuthToken.user_id == user.id,
+        ).limit(1)
     )
     row = result.scalar_one_or_none()
     connected = bool(row and row.refresh_token)
-    return {"connected": connected, "email": row.user_email if connected else None}
+    return {
+        "connected": connected,
+        "email": row.user_email if connected else None,
+        "poll_interval_minutes": row.poll_interval_minutes if connected else None,
+    }
 
 
 @router.delete("")
 async def disconnect(
     org_id: UUID = Depends(resolve_org),
+    user: User = Depends(current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Revoke Google Drive access and delete stored tokens."""
+    """Revoke the current user's Google access and delete their stored tokens."""
     result = await db.execute(
-        select(GoogleOAuthToken).where(GoogleOAuthToken.org_id == org_id).limit(1)
+        select(GoogleOAuthToken).where(
+            GoogleOAuthToken.org_id == org_id,
+            GoogleOAuthToken.user_id == user.id,
+        ).limit(1)
     )
     row = result.scalar_one_or_none()
     if row:
@@ -262,18 +292,71 @@ async def disconnect(
     return {"ok": True}
 
 
+class GoogleSettingsUpdate(BaseModel):
+    poll_interval_minutes: int | None = None
+
+
+@router.patch("/settings")
+async def update_settings(
+    payload: GoogleSettingsUpdate,
+    org_id: UUID = Depends(resolve_org),
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update per-user Gmail polling settings."""
+    result = await db.execute(
+        select(GoogleOAuthToken).where(
+            GoogleOAuthToken.org_id == org_id,
+            GoogleOAuthToken.user_id == user.id,
+        ).limit(1)
+    )
+    row = result.scalar_one_or_none()
+    if not row or not row.refresh_token:
+        raise HTTPException(status_code=400, detail="Google not connected")
+
+    if payload.poll_interval_minutes is not None:
+        if payload.poll_interval_minutes < 1:
+            raise HTTPException(status_code=422, detail="poll_interval_minutes must be >= 1")
+        row.poll_interval_minutes = payload.poll_interval_minutes
+
+    await db.commit()
+    return {
+        "connected": True,
+        "email": row.user_email,
+        "poll_interval_minutes": row.poll_interval_minutes,
+    }
+
+
 @router.get("/token")
 async def get_access_token(request: Request, db: AsyncSession = Depends(get_db)):
-    """Return a valid access token, refreshing if expired. Used internally by the MCP server.
+    """Return a valid access token, refreshing if expired. Used internally by MCP servers.
 
-    Scopes by org when X-Org-Id is present; falls back to limit(1) for legacy MCP server calls.
+    Scopes by (org_id, user_id) when both headers are present.
+    Falls back to first token for org when only X-Org-Id is provided (legacy MCP calls).
     """
-    raw_org_id = request.headers.get("x-org-id")
-    if raw_org_id:
+    raw_org_id  = request.headers.get("x-org-id")
+    raw_user_id = request.headers.get("x-user-id")
+
+    if raw_org_id and raw_user_id:
+        try:
+            token_org_id  = UUID(raw_org_id)
+            token_user_id = UUID(raw_user_id)
+            result = await db.execute(
+                select(GoogleOAuthToken).where(
+                    GoogleOAuthToken.org_id == token_org_id,
+                    GoogleOAuthToken.user_id == token_user_id,
+                ).limit(1)
+            )
+        except ValueError:
+            result = await db.execute(select(GoogleOAuthToken).limit(1))
+    elif raw_org_id:
         try:
             token_org_id = UUID(raw_org_id)
             result = await db.execute(
-                select(GoogleOAuthToken).where(GoogleOAuthToken.org_id == token_org_id).limit(1)
+                select(GoogleOAuthToken).where(
+                    GoogleOAuthToken.org_id == token_org_id,
+                    GoogleOAuthToken.refresh_token.isnot(None),
+                ).limit(1)
             )
         except ValueError:
             result = await db.execute(select(GoogleOAuthToken).limit(1))
@@ -282,7 +365,7 @@ async def get_access_token(request: Request, db: AsyncSession = Depends(get_db))
 
     row = result.scalar_one_or_none()
     if not row or not row.refresh_token:
-        raise HTTPException(status_code=401, detail="Google Drive not connected")
+        raise HTTPException(status_code=401, detail="Google not connected")
 
     now = datetime.now(timezone.utc)
     expiry = row.token_expiry

@@ -19,7 +19,10 @@ from app.models.session_model import Session
 from app.models.magic_link import MagicLink
 from app.models.sso import OrgSsoConfig, OrgEmailDomain
 from app.models.audit_log import AuditLog
-from app.models.signal_event import SignalEvent, IntegrationConfig
+from app.models.signals import Signal
+from app.models.integration_config import IntegrationConfig
+from app.models.agent_schedule import AgentSchedule
+from app.models.agent_db_policy import AgentDbPolicy
 from app.models.deal_intelligence import DealSignal, BuyingGroupMember
 from app.models.commission import CommissionPlan, QuotaAllocation, AttainmentSnapshot
 from app.models.account import Account
@@ -56,8 +59,11 @@ __all__ = [
     "OrgEmailDomain",
     "AuditLog",
     # Signal pipeline
-    "SignalEvent",
+    "Signal",
     "IntegrationConfig",
+    # Agent scheduling + DB access
+    "AgentSchedule",
+    "AgentDbPolicy",
     # Deal intelligence
     "DealSignal",
     "BuyingGroupMember",

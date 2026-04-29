@@ -36,3 +36,14 @@ class P:
     MCP_PROJECT_PUBLISH   = "mcp.project.publish"
     MCP_PROJECT_DELETE    = "mcp.project.delete"
     MCP_INVOCATIONS_READ  = "mcp.invocations.read"
+
+    # ── Agent scheduling ──────────────────────────────────────────────────
+    AGENT_SCHEDULE_READ    = "agent.schedule.read"
+    AGENT_SCHEDULE_WRITE   = "agent.schedule.write"
+    AGENT_SCHEDULE_DELETE  = "agent.schedule.delete"
+    AGENT_SCHEDULE_TRIGGER = "agent.schedule.trigger"
+
+    # ── Agent DB access policies ──────────────────────────────────────────
+    AGENT_DB_POLICY_READ   = "agent.db_policy.read"
+    AGENT_DB_POLICY_WRITE  = "agent.db_policy.write"
+    AGENT_DB_POLICY_DELETE = "agent.db_policy.delete"

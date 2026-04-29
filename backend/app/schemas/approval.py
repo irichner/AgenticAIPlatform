@@ -9,6 +9,7 @@ class ApprovalRequestOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    org_id: UUID
     run_id: UUID
     agent_id: UUID | None
     thread_id: str

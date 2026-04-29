@@ -4,9 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { useSWRConfig } from "swr";
 import {
-  LayoutGrid,
   House,
   Workflow,
   GitBranch,
@@ -19,7 +17,6 @@ import {
   Brain,
   Plug,
   Check,
-  X,
   MessageSquare,
   MessagesSquare,
   Sparkles,
@@ -32,30 +29,27 @@ import { cn } from "@/lib/cn";
 import { useThreads } from "@/components/shared/ThreadsProvider";
 import { useBranding } from "@/components/shared/BrandingProvider";
 import { useAuth } from "@/contexts/auth";
-import { api } from "@/lib/api";
 
-type CreateAction = "dept" | "agent" | "workflow" | "chat" | null;
+type CreateAction = "agent" | "workflow" | "chat" | null;
 
 const navItems: { href: string; label: string; icon: React.ElementType; createAction: CreateAction }[] = [
-  { href: "/assistant",   label: "Assistant",    icon: Sparkles,        createAction: "chat"     },
-  { href: "/dashboard",   label: "Dashboard",    icon: House,           createAction: null       },
-  { href: "/swarms",      label: "Swarms",       icon: LayoutGrid,      createAction: "dept"     },
-  { href: "/canvas",      label: "Agents",       icon: Workflow,        createAction: "agent"    },
-  { href: "/workflow",    label: "Workflows",    icon: GitBranch,       createAction: "workflow" },
-  { href: "/chat",        label: "Chat",         icon: MessagesSquare,  createAction: null       },
-  { href: "/crm",         label: "CRM",          icon: TrendingUp,      createAction: null       },
-  { href: "/commission",  label: "Commission",   icon: DollarSign,      createAction: null       },
-  { href: "/leaderboard", label: "Leaderboard",  icon: Trophy,          createAction: null       },
-  { href: "/coaching",    label: "AI Coach",     icon: Brain,           createAction: null       },
-  { href: "/integrations", label: "Integrations", icon: Plug,            createAction: null       },
-  { href: "/approvals",   label: "Approvals",    icon: ShieldCheck,     createAction: null       },
-  { href: "/admin",       label: "Admin",        icon: Settings2,       createAction: null       },
+  { href: "/assistant",    label: "Assistant",    icon: Sparkles,       createAction: "chat"     },
+  { href: "/dashboard",    label: "Dashboard",    icon: House,          createAction: null       },
+  { href: "/canvas",       label: "Agents",       icon: Workflow,       createAction: "agent"    },
+  { href: "/workflow",     label: "Workflows",    icon: GitBranch,      createAction: "workflow" },
+  { href: "/chat",         label: "Chat",         icon: MessagesSquare, createAction: null       },
+  { href: "/crm",          label: "CRM",          icon: TrendingUp,     createAction: null       },
+  { href: "/commission",   label: "Commission",   icon: DollarSign,     createAction: null       },
+  { href: "/leaderboard",  label: "Leaderboard",  icon: Trophy,         createAction: null       },
+  { href: "/coaching",     label: "AI Coach",     icon: Brain,          createAction: null       },
+  { href: "/integrations", label: "Integrations", icon: Plug,           createAction: null       },
+  { href: "/approvals",    label: "Approvals",    icon: ShieldCheck,    createAction: null       },
+  { href: "/admin",        label: "Admin",        icon: Settings2,      createAction: null       },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const router   = useRouter();
-  const { mutate } = useSWRConfig();
   const { threads, activeThreadId, startNewChat, loadThread, deleteThread } = useThreads();
   const [collapsed, setCollapsed] = useState(false);
   const { appName, appIcon } = useBranding();
@@ -76,31 +70,6 @@ export function Sidebar() {
   const initials = user?.email
     ? user.email.slice(0, 2).toUpperCase()
     : "?";
-
-  // ── Swarm creation ────────────────────────────────────────────────────────
-  const [creatingDept, setCreatingDept]   = useState(false);
-  const [deptName, setDeptName]           = useState("");
-  const [savingDept, setSavingDept]       = useState(false);
-  const deptInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (creatingDept) deptInputRef.current?.focus();
-  }, [creatingDept]);
-
-  const commitDept = async () => {
-    const name = deptName.trim();
-    if (!name) { setCreatingDept(false); setDeptName(""); return; }
-    setSavingDept(true);
-    try {
-      await api.businessUnits.create({ name });
-      setCreatingDept(false);
-      setDeptName("");
-      mutate("business-units");
-      router.push("/swarms");
-    } finally {
-      setSavingDept(false);
-    }
-  };
 
   // ── New chat ───────────────────────────────────────────────────────────────
   const handleNewChat = () => {
@@ -158,13 +127,11 @@ export function Sidebar() {
                 <button
                   onClick={() => {
                     if (createAction === "chat") handleNewChat();
-                    if (createAction === "dept") setCreatingDept((v) => !v);
                     if (createAction === "agent") router.push("/canvas?new=true");
                     if (createAction === "workflow") router.push("/workflow?new=true");
                   }}
                   title={
                     createAction === "chat" ? "New chat" :
-                    createAction === "dept" ? "New swarm" :
                     createAction === "agent" ? "New agent" : "New workflow"
                   }
                   className="p-1.5 rounded-lg text-text-3 hover:text-text-1 hover:bg-surface-2 transition-colors"
@@ -174,35 +141,6 @@ export function Sidebar() {
               )}
             </div>
 
-            {createAction === "dept" && !collapsed && creatingDept && (
-              <div className="flex items-center gap-1 px-2 py-1.5">
-                <input
-                  ref={deptInputRef}
-                  value={deptName}
-                  onChange={(e) => setDeptName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") commitDept();
-                    if (e.key === "Escape") { setCreatingDept(false); setDeptName(""); }
-                  }}
-                  placeholder="Swarm name…"
-                  disabled={savingDept}
-                  className="flex-1 bg-surface-2 border border-border rounded-lg px-2 py-1 text-xs text-text-1 placeholder:text-text-3 outline-none focus:border-violet disabled:opacity-50"
-                />
-                <button
-                  onClick={commitDept}
-                  disabled={savingDept || !deptName.trim()}
-                  className="text-emerald-400 hover:text-emerald-300 disabled:opacity-40 transition-colors"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => { setCreatingDept(false); setDeptName(""); }}
-                  className="text-text-3 hover:text-text-2 transition-colors"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
           </div>
         ))}
       </nav>

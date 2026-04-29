@@ -14,6 +14,7 @@ class AgentGroupOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    org_id: UUID
     business_unit_id: UUID
     name: str
     description: str | None

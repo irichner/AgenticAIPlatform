@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import String, Boolean, DateTime, Text, func, text
+from sqlalchemy import Integer, String, Boolean, DateTime, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 import uuid
 from app.models.base import Base
@@ -9,6 +9,7 @@ from app.models.base import Base
 
 class Org(Base):
     __tablename__ = "orgs"
+    __table_args__ = {"schema": "lanara"}
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
@@ -19,6 +20,9 @@ class Org(Base):
     sso_enforced: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     mcp_gateway_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("FALSE"))
     mcp_guardrail_prompt_additions: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    # Org-wide default execution rate limits (NULL = fall back to env var defaults)
+    agent_runs_per_minute: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    agent_runs_per_hour: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

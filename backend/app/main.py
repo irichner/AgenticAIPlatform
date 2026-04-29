@@ -9,6 +9,16 @@ load_dotenv()
 
 _SYNC_INTERVAL_SECONDS = int(os.getenv("PROVIDER_SYNC_INTERVAL", str(86_400)))  # 24 h
 
+_IS_PRODUCTION = os.getenv("ENV", "development").lower() == "production"
+
+def _cors_origins() -> list[str]:
+    raw = os.getenv("CORS_ORIGINS", "")
+    if raw:
+        return [o.strip() for o in raw.split(",") if o.strip()]
+    if _IS_PRODUCTION:
+        return []
+    return ["http://localhost:3000", "http://127.0.0.1:3000"]
+
 
 async def _daily_provider_sync():
     """Background task: refresh API provider models once per day."""
@@ -63,6 +73,8 @@ async def lifespan(app: FastAPI):
     from app.agents.prebuilt.manager_briefing import run_manager_briefing_loop
     from app.agents.prebuilt.rep_coaching import run_coaching_loop
     from app.agents.prebuilt.gmail_poller import run_gmail_poller_loop
+    from app.agents.scheduler import run_scheduler_loop
+    from app.core.data_retention import run_data_retention_loop
 
     app.state.checkpointer = await get_checkpointer()
     task_provider = asyncio.create_task(_daily_provider_sync())
@@ -73,20 +85,23 @@ async def lifespan(app: FastAPI):
     task_briefing = asyncio.create_task(run_manager_briefing_loop())
     task_coaching = asyncio.create_task(run_coaching_loop())
     task_gmail   = asyncio.create_task(run_gmail_poller_loop())
+    task_scheduler = asyncio.create_task(run_scheduler_loop())
+    task_retention = asyncio.create_task(run_data_retention_loop())
     yield
-    task_provider.cancel()
-    task_warmup.cancel()
-    task_sweeper.cancel()
-    task_activity_logger.cancel()
-    task_deal_health.cancel()
-    task_briefing.cancel()
-    task_coaching.cancel()
-    task_gmail.cancel()
-    for t in (task_provider, task_warmup, task_sweeper, task_activity_logger, task_deal_health, task_briefing, task_coaching, task_gmail):
-        try:
-            await t
-        except asyncio.CancelledError:
-            pass
+    _bg_tasks = (
+        task_provider, task_warmup, task_sweeper, task_activity_logger,
+        task_deal_health, task_briefing, task_coaching, task_gmail,
+        task_scheduler, task_retention,
+    )
+    for t in _bg_tasks:
+        t.cancel()
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*_bg_tasks, return_exceptions=True),
+            timeout=30.0,
+        )
+    except asyncio.TimeoutError:
+        pass
 
 
 app = FastAPI(
@@ -99,7 +114,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -141,6 +156,8 @@ from app.routers.deal_intelligence import signals_router as deal_signals_router,
 from app.routers.commission import router as commission_router, plans_router, quota_router
 from app.routers.leaderboard import router as leaderboard_router
 from app.routers.coaching import router as coaching_router
+from app.routers.schedules import router as schedules_router
+from app.routers.agent_db_policies import router as agent_db_policies_router
 
 app.include_router(health_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
@@ -181,6 +198,8 @@ app.include_router(plans_router, prefix="/api")
 app.include_router(quota_router, prefix="/api")
 app.include_router(leaderboard_router, prefix="/api")
 app.include_router(coaching_router, prefix="/api")
+app.include_router(schedules_router, prefix="/api")
+app.include_router(agent_db_policies_router, prefix="/api")
 
 @app.get("/")
 async def root():

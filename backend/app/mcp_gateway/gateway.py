@@ -119,7 +119,7 @@ async def list_tools(
 
         if cached_tools is None:
             try:
-                client = MCPClient(reg, auth.headers(reg))
+                client = MCPClient(reg, {**auth.headers(reg), "x-lanara-org-id": str(org_id)})
                 raw_tools = await client.list_tools()
             except CircuitOpenError as exc:
                 logger.warning("Circuit open for %s: %s", reg.name, exc)
@@ -222,7 +222,8 @@ async def call_tool(
             assert_tool_in_snapshot(snapshot, registration_id, tool_name)
 
     auth = get_auth_handler(reg.auth_type)
-    client = MCPClient(reg, auth.headers(reg))
+    mcp_headers = {**auth.headers(reg), "x-lanara-org-id": str(org_id)}
+    client = MCPClient(reg, mcp_headers)
 
     t0 = time.monotonic()
     raw_result = None

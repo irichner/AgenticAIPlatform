@@ -32,7 +32,10 @@ interface CoachingInsights {
 }
 
 const fetcher = (url: string) =>
-  fetch(url, { credentials: "include" }).then((r) => {
+  fetch(url, {
+    credentials: "include",
+    headers: { "X-Org-Id": localStorage.getItem("lanara_org_id") || "" },
+  }).then((r) => {
     if (!r.ok) throw new Error("Not found");
     return r.json();
   });
@@ -94,7 +97,10 @@ export default function CoachingPage() {
       await fetch(`/api/coaching/${userId}/refresh`, {
         method: "POST",
         credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "X-Org-Id": localStorage.getItem("lanara_org_id") || "",
+        },
       });
       // Refetch after 2s to give background task time to complete
       setTimeout(() => { mutate(); setRefreshing(false); }, 2000);
