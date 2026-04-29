@@ -13,6 +13,7 @@ export function proxy(request: NextRequest) {
   const sid = request.cookies.get("sid");
   if (!sid?.value) {
     const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
