@@ -1,4 +1,4 @@
-"""Google Drive OAuth integration endpoints."""
+"""Google Account OAuth integration endpoints (Drive + Gmail)."""
 from __future__ import annotations
 import os
 import json
@@ -15,16 +15,19 @@ from app.auth.dependencies import resolve_org
 from app.dependencies import get_db
 from app.models.google_token import GoogleOAuthToken
 
-router = APIRouter(prefix="/integrations/google-drive", tags=["integrations"])
+router = APIRouter(prefix="/integrations/google", tags=["integrations"])
 
 GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI  = os.getenv(
-    "GOOGLE_REDIRECT_URI",
-    "http://localhost:3000/api/integrations/google-drive/callback",
+    "GOOGLE_INTEGRATION_REDIRECT_URI",
+    os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:3000/api/integrations/google/callback"),
 )
 SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
+    "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
     "openid",
@@ -104,22 +107,26 @@ async def oauth_callback(
     """Handle Google OAuth callback, exchange code for tokens."""
     close_script = """
 <html><body><script>
+  try { localStorage.setItem('google-oauth-result', JSON.stringify({type:'connected',ts:Date.now()})); } catch(e) {}
   if (window.opener) {
-    window.opener.postMessage({type:'google-drive-connected'}, '*');
-    window.close();
-  } else {
-    window.location.href = '/admin?tab=mcp';
+    try { window.opener.postMessage({type:'google-drive-connected'}, '*'); } catch(e) {}
   }
+  setTimeout(function() {
+    try { window.close(); } catch(e) {}
+    document.body.innerHTML = '<p style="font-family:sans-serif;padding:20px;color:#16a34a">Google connected! You can close this tab.</p>';
+  }, 200);
 </script></body></html>
 """
     error_script = lambda msg: f"""
 <html><body><script>
+  try {{ localStorage.setItem('google-oauth-result', JSON.stringify({{type:'error',error:{json.dumps(msg)},ts:Date.now()}})); }} catch(e) {{}}
   if (window.opener) {{
-    window.opener.postMessage({{type:'google-drive-error', error:{json.dumps(msg)}}}, '*');
-    window.close();
-  }} else {{
-    document.body.innerText = 'Error: {msg}';
+    try {{ window.opener.postMessage({{type:'google-drive-error', error:{json.dumps(msg)}}}, '*'); }} catch(e) {{}}
   }}
+  setTimeout(function() {{
+    try {{ window.close(); }} catch(e) {{}}
+    document.body.innerHTML = '<p style="font-family:sans-serif;padding:20px;color:#dc2626">Error: {msg}. You can close this tab.</p>';
+  }}, 200);
 </script></body></html>
 """
 
@@ -128,7 +135,7 @@ async def oauth_callback(
     if not code:
         return HTMLResponse(error_script("No authorization code received"))
 
-    # Extract org_id and random_state from the combined state string
+    # Extract org_id and random_state from the combined state string "{random}|{org_id}"
     random_state = state
     callback_org_id: UUID | None = None
     if state and "|" in state:
@@ -139,26 +146,42 @@ async def oauth_callback(
         except ValueError:
             pass
 
+    # Find the pending token row — prefer matching by org_id, fall back to oauth_state match
+    row: GoogleOAuthToken | None = None
     if callback_org_id:
-        result = await db.execute(
+        res = await db.execute(
             select(GoogleOAuthToken).where(GoogleOAuthToken.org_id == callback_org_id).limit(1)
         )
-    else:
-        result = await db.execute(select(GoogleOAuthToken).limit(1))
+        row = res.scalar_one_or_none()
 
-    row = result.scalar_one_or_none()
+    if row is None:
+        # Fallback: find any row whose oauth_state matches the random_state portion
+        res = await db.execute(select(GoogleOAuthToken))
+        for candidate in res.scalars().all():
+            if not candidate.oauth_state:
+                continue
+            try:
+                parsed = json.loads(candidate.oauth_state)
+                if parsed.get("state") == random_state:
+                    row = candidate
+                    break
+            except Exception:
+                pass
+
+    if row is None:
+        return HTMLResponse(error_script("OAuth session expired — please try connecting again"))
 
     stored_state: str | None = None
     stored_verifier: str | None = None
-    if row and row.oauth_state:
+    if row.oauth_state:
         try:
             parsed = json.loads(row.oauth_state)
             stored_state    = parsed.get("state")
             stored_verifier = parsed.get("code_verifier")
         except (json.JSONDecodeError, AttributeError):
-            stored_state = row.oauth_state  # legacy plain string
+            stored_state = row.oauth_state
 
-    if not row or (random_state and stored_state != random_state):
+    if random_state and stored_state and stored_state != random_state:
         return HTMLResponse(error_script("Invalid OAuth state — please try connecting again"))
 
     try:

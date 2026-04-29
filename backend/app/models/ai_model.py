@@ -42,6 +42,8 @@ class AiModel(Base, TimestampMixin):
     is_auto_managed: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("FALSE")
     )
+    role: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    max_concurrent: Mapped[int | None] = mapped_column(Integer, nullable=True, server_default="1")
 
     provider_rel: Mapped["ApiProvider | None"] = relationship(
         "ApiProvider", back_populates="models"

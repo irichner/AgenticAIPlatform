@@ -143,6 +143,30 @@ async def list_provider_models(provider: str, base_url: str | None = None):
     return _STATIC_MODELS.get(p, [])
 
 
+@router.get("/providers/ollama/queue")
+async def ollama_queue(base_url: str | None = None):
+    """Return per-model queue stats: { model_id: { processing, pending } } for loaded models only."""
+    from app.utils.ollama_tracking import get_model_stats
+    effective = (base_url or os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")).rstrip("/")
+
+    # Get models currently loaded in Ollama
+    loaded: list[str] = []
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(f"{effective}/api/ps")
+            if resp.status_code == 200:
+                loaded = [m["name"] for m in resp.json().get("models", [])]
+    except Exception:
+        pass
+
+    # Fetch Redis stats for each loaded model
+    result: dict[str, dict] = {}
+    for model_id in loaded:
+        result[model_id] = await get_model_stats(model_id)
+
+    return {"models": result}
+
+
 @router.post("/providers/ollama/pull")
 async def pull_ollama_model(model: str, base_url: str | None = None):
     """Stream pull progress from Ollama as SSE."""
@@ -251,3 +275,40 @@ async def delete_ai_model(
 
     await db.delete(model)
     await db.commit()
+
+
+class RoleAssign(_PydanticBase):
+    role: str | None  # None = clear role
+
+
+@router.patch("/{model_id}/role", response_model=AiModelOut)
+async def set_model_role(
+    model_id: UUID,
+    body: RoleAssign,
+    org_id: UUID = Depends(resolve_org),
+    db: AsyncSession = Depends(get_db),
+):
+    """Assign or clear a functional role on an AI model. Clears the role from any other model first."""
+    result = await db.execute(
+        select(AiModel).where(AiModel.id == model_id, AiModel.org_id == org_id)
+    )
+    model = result.scalar_one_or_none()
+    if model is None:
+        raise HTTPException(status_code=404, detail="AI model not found")
+
+    if body.role:
+        # Clear the role from any other model in the org
+        existing = await db.execute(
+            select(AiModel).where(
+                AiModel.org_id == org_id,
+                AiModel.role == body.role,
+                AiModel.id != model_id,
+            )
+        )
+        for other in existing.scalars().all():
+            other.role = None
+
+    model.role = body.role
+    await db.commit()
+    await db.refresh(model)
+    return AiModelOut.from_orm_mask(model)

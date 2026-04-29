@@ -58,15 +58,31 @@ async def lifespan(app: FastAPI):
     from app.core.checkpointer import get_checkpointer
     from app.mcp_gateway.sweeper import run_sweeper_loop
 
+    from app.agents.prebuilt.activity_logger import run_activity_logger_loop
+    from app.agents.prebuilt.deal_health import run_deal_health_loop
+    from app.agents.prebuilt.manager_briefing import run_manager_briefing_loop
+    from app.agents.prebuilt.rep_coaching import run_coaching_loop
+    from app.agents.prebuilt.gmail_poller import run_gmail_poller_loop
+
     app.state.checkpointer = await get_checkpointer()
     task_provider = asyncio.create_task(_daily_provider_sync())
     task_warmup   = asyncio.create_task(_ollama_warmup())
     task_sweeper  = asyncio.create_task(run_sweeper_loop())
+    task_activity_logger = asyncio.create_task(run_activity_logger_loop())
+    task_deal_health = asyncio.create_task(run_deal_health_loop())
+    task_briefing = asyncio.create_task(run_manager_briefing_loop())
+    task_coaching = asyncio.create_task(run_coaching_loop())
+    task_gmail   = asyncio.create_task(run_gmail_poller_loop())
     yield
     task_provider.cancel()
     task_warmup.cancel()
     task_sweeper.cancel()
-    for t in (task_provider, task_warmup, task_sweeper):
+    task_activity_logger.cancel()
+    task_deal_health.cancel()
+    task_briefing.cancel()
+    task_coaching.cancel()
+    task_gmail.cancel()
+    for t in (task_provider, task_warmup, task_sweeper, task_activity_logger, task_deal_health, task_briefing, task_coaching, task_gmail):
         try:
             await t
         except asyncio.CancelledError:
@@ -116,6 +132,15 @@ from app.routers.roles import router as roles_router
 from app.routers.audit import router as audit_router
 from app.routers.sso import router as sso_router, auth_router as sso_auth_router
 from app.mcp_gateway.router import router as mcp_gateway_router
+from app.routers.accounts import router as accounts_router
+from app.routers.contacts import router as contacts_router
+from app.routers.opportunities import stages_router as opp_stages_router, opps_router as opps_router
+from app.routers.activities import router as activities_router
+from app.routers.signals import router as signals_router, integrations_router as integration_configs_router
+from app.routers.deal_intelligence import signals_router as deal_signals_router, opp_intelligence_router
+from app.routers.commission import router as commission_router, plans_router, quota_router
+from app.routers.leaderboard import router as leaderboard_router
+from app.routers.coaching import router as coaching_router
 
 app.include_router(health_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
@@ -142,6 +167,20 @@ app.include_router(integrations_router, prefix="/api")
 app.include_router(workflows_router, prefix="/api")
 app.include_router(workflow_runs_router, prefix="/api")
 app.include_router(mcp_gateway_router, prefix="/api")
+app.include_router(accounts_router, prefix="/api")
+app.include_router(contacts_router, prefix="/api")
+app.include_router(opp_stages_router, prefix="/api")
+app.include_router(opps_router, prefix="/api")
+app.include_router(activities_router, prefix="/api")
+app.include_router(signals_router, prefix="/api")
+app.include_router(integration_configs_router, prefix="/api")
+app.include_router(deal_signals_router, prefix="/api")
+app.include_router(opp_intelligence_router, prefix="/api")
+app.include_router(commission_router, prefix="/api")
+app.include_router(plans_router, prefix="/api")
+app.include_router(quota_router, prefix="/api")
+app.include_router(leaderboard_router, prefix="/api")
+app.include_router(coaching_router, prefix="/api")
 
 @app.get("/")
 async def root():

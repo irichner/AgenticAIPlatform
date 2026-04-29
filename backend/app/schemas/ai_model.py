@@ -24,6 +24,7 @@ class AiModelUpdate(BaseModel):
     api_key: str | None = None
     enabled: bool | None = None
     description: str | None = None
+    max_concurrent: int | None = None
 
 
 class AiModelOut(BaseModel):
@@ -42,6 +43,8 @@ class AiModelOut(BaseModel):
     context_window: int | None
     capabilities: list[str] | None
     is_auto_managed: bool
+    role: str | None
+    max_concurrent: int | None
     created_at: datetime
     updated_at: datetime
 
@@ -61,6 +64,8 @@ class AiModelOut(BaseModel):
             context_window=obj.context_window,  # type: ignore[attr-defined]
             capabilities=obj.capabilities,  # type: ignore[attr-defined]
             is_auto_managed=obj.is_auto_managed,  # type: ignore[attr-defined]
+            role=obj.role,  # type: ignore[attr-defined]
+            max_concurrent=obj.max_concurrent,  # type: ignore[attr-defined]
             created_at=obj.created_at,  # type: ignore[attr-defined]
             updated_at=obj.updated_at,  # type: ignore[attr-defined]
         )

@@ -1068,7 +1068,68 @@ function ProvidersView({
   );
 }
 
-function ModelRow({ model, onToggle, onDelete }: { model: AiModel; onToggle: () => void; onDelete?: () => void }) {
+function OllamaQueueBadge({ modelId, baseUrl }: { modelId: string; baseUrl: string | null }) {
+  const { data } = useSWR(
+    ["ollama-queue", baseUrl ?? "default"],
+    () => api.aiModels.ollamaQueue(baseUrl ?? undefined),
+    { refreshInterval: 2000, dedupingInterval: 1500 },
+  );
+
+  // Only render if this model appears in /api/ps (currently loaded in Ollama)
+  if (!data) return null;
+  if (!(modelId in data.models)) return null;
+
+  const { processing, pending } = data.models[modelId];
+  const total = processing + pending;
+
+  return (
+    <span className={cn(
+      "text-xs px-1.5 py-0.5 rounded border font-medium tabular-nums",
+      total > 0
+        ? "bg-amber/15 border-amber/30 text-amber"
+        : "bg-white/5 border-white/10 text-text-3",
+    )}>
+      {total === 0 && "idle"}
+      {total > 0 && pending === 0 && `${processing} processing`}
+      {total > 0 && pending > 0 && `${processing} processing · ${pending} queued`}
+    </span>
+  );
+}
+
+function ModelRow({ model, onToggle, onDelete, onRoleChange, onUpdate }: {
+  model: AiModel;
+  onToggle: () => void;
+  onDelete?: () => void;
+  onRoleChange?: () => void;
+  onUpdate?: () => void;
+}) {
+  const [settingRole, setSettingRole] = useState(false);
+  const [updatingConcurrency, setUpdatingConcurrency] = useState(false);
+  const isComms = model.role === "comms_model";
+  const concurrency = model.max_concurrent ?? 1;
+
+  const setConcurrency = async (val: number) => {
+    const clamped = Math.max(1, Math.min(8, val));
+    if (clamped === concurrency || updatingConcurrency) return;
+    setUpdatingConcurrency(true);
+    try {
+      await api.aiModels.update(model.id, { max_concurrent: clamped });
+      onUpdate?.();
+    } finally {
+      setUpdatingConcurrency(false);
+    }
+  };
+
+  const toggleCommsRole = async () => {
+    setSettingRole(true);
+    try {
+      await api.aiModels.setRole(model.id, isComms ? null : "comms_model");
+      onRoleChange?.();
+    } finally {
+      setSettingRole(false);
+    }
+  };
+
   return (
     <motion.div layout initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 8 }}
       className="glass rounded-xl px-4 py-3 flex items-center gap-4">
@@ -1082,6 +1143,28 @@ function ModelRow({ model, onToggle, onDelete }: { model: AiModel; onToggle: () 
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-medium text-text-1">{model.name}</p>
           <span className="text-xs text-text-3 capitalize">{model.provider}</span>
+          {isComms && (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-cyan/15 border border-cyan/30 text-cyan font-medium">
+              Comms
+            </span>
+          )}
+          {model.type === "local" && <OllamaQueueBadge modelId={model.model_id} baseUrl={model.base_url} />}
+          {model.type === "local" && (
+            <div className="flex items-center gap-1 shrink-0" title="Concurrent inference slots">
+              <button
+                onClick={() => setConcurrency(concurrency - 1)}
+                disabled={concurrency <= 1 || updatingConcurrency}
+                className="w-5 h-5 flex items-center justify-center rounded text-text-3 hover:text-text-1 hover:bg-white/10 disabled:opacity-30 transition-colors text-xs"
+              >−</button>
+              <span className="text-xs tabular-nums text-text-2 w-4 text-center">{concurrency}</span>
+              <button
+                onClick={() => setConcurrency(concurrency + 1)}
+                disabled={concurrency >= 8 || updatingConcurrency}
+                className="w-5 h-5 flex items-center justify-center rounded text-text-3 hover:text-text-1 hover:bg-white/10 disabled:opacity-30 transition-colors text-xs"
+              >+</button>
+              <span className="text-xs text-text-3">slots</span>
+            </div>
+          )}
           {model.context_window && (
             <span className="text-xs px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-text-3">
               {model.context_window >= 1000
@@ -1097,6 +1180,19 @@ function ModelRow({ model, onToggle, onDelete }: { model: AiModel; onToggle: () 
         </div>
         <p className="text-xs text-text-3 font-mono mt-0.5">{model.model_id}</p>
       </div>
+      <button
+        onClick={toggleCommsRole}
+        disabled={settingRole}
+        title={isComms ? "Remove Comms model role" : "Set as Comms model"}
+        className={cn(
+          "text-xs px-2.5 py-1 rounded-lg border transition-colors shrink-0 disabled:opacity-40",
+          isComms
+            ? "border-cyan/40 bg-cyan/10 text-cyan hover:bg-rose-400/10 hover:border-rose-400/40 hover:text-rose-400"
+            : "border-white/10 text-text-3 hover:border-cyan/40 hover:text-cyan hover:bg-cyan/10",
+        )}
+      >
+        {isComms ? "Comms ✓" : "Set Comms"}
+      </button>
       {onDelete && (
         <button onClick={onDelete} title="Remove model"
           className="text-text-3 hover:text-rose-400 transition-colors shrink-0 p-0.5">
@@ -1172,7 +1268,7 @@ function ModelsView({ models, mutate, loading }: { models: AiModel[]; mutate: ()
             <p className="text-xs font-medium text-text-2 uppercase tracking-widest">API Models</p>
           </div>
           <AnimatePresence>
-            {apiModels.map((m) => <ModelRow key={m.id} model={m} onToggle={() => handleToggle(m)} />)}
+            {apiModels.map((m) => <ModelRow key={m.id} model={m} onToggle={() => handleToggle(m)} onRoleChange={mutate} />)}
           </AnimatePresence>
         </div>
       )}
@@ -1185,7 +1281,7 @@ function ModelsView({ models, mutate, loading }: { models: AiModel[]; mutate: ()
           </div>
           <AnimatePresence>
             {localModels.map((m) => (
-              <ModelRow key={m.id} model={m} onToggle={() => handleToggle(m)} onDelete={() => setDeleteTarget(m)} />
+              <ModelRow key={m.id} model={m} onToggle={() => handleToggle(m)} onDelete={() => setDeleteTarget(m)} onRoleChange={mutate} onUpdate={mutate} />
             ))}
           </AnimatePresence>
         </div>
@@ -1707,11 +1803,6 @@ function McpServersTab() {
             )}
           </AnimatePresence>
 
-          {/* Google Drive connection panel */}
-          {servers.some((s) => s.name.toLowerCase() === "google drive") && (
-            <GoogleDrivePanel />
-          )}
-
           {/* Server list */}
           {isLoading ? (
             <div className="flex items-center gap-2 text-text-3 text-sm">
@@ -2180,120 +2271,6 @@ function ToolList({ server, onMutate }: { server: McpServer; onMutate: () => voi
           </div>
         </div>
       ))}
-    </div>
-  );
-}
-
-function GoogleDrivePanel() {
-  const { data: status, mutate, isLoading } = useSWR(
-    "gdrive-status",
-    () => api.integrations.googleDrive.status(),
-    { refreshInterval: 0 },
-  );
-  const [connecting,    setConnecting]    = useState(false);
-  const [disconnecting, setDisconnecting] = useState(false);
-  const [connectError,  setConnectError]  = useState("");
-
-  const connect = async () => {
-    setConnecting(true);
-    setConnectError("");
-    try {
-      const { auth_url } = await api.integrations.googleDrive.authUrl();
-      const popup = window.open(auth_url, "google-drive-auth", "width=600,height=700,left=200,top=100");
-
-      const handleMsg = (event: MessageEvent) => {
-        if (event.data?.type === "google-drive-connected") {
-          window.removeEventListener("message", handleMsg);
-          clearInterval(closed);
-          setConnecting(false);
-          mutate();
-        } else if (event.data?.type === "google-drive-error") {
-          window.removeEventListener("message", handleMsg);
-          clearInterval(closed);
-          setConnecting(false);
-          setConnectError(event.data.error || "Connection failed");
-        }
-      };
-      window.addEventListener("message", handleMsg);
-
-      const closed = setInterval(() => {
-        if (popup?.closed) {
-          clearInterval(closed);
-          window.removeEventListener("message", handleMsg);
-          setConnecting(false);
-          mutate();
-        }
-      }, 1000);
-    } catch (e: unknown) {
-      setConnecting(false);
-      setConnectError(e instanceof Error ? e.message : "Failed to start connection");
-    }
-  };
-
-  const disconnect = async () => {
-    setDisconnecting(true);
-    try {
-      await api.integrations.googleDrive.disconnect();
-      mutate();
-    } finally {
-      setDisconnecting(false);
-    }
-  };
-
-  return (
-    <div className="rounded-xl border border-emerald/20 bg-emerald/5 p-4 space-y-3">
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg bg-emerald/15 flex items-center justify-center shrink-0">
-          <Globe className="w-4 h-4 text-emerald" />
-        </div>
-        <div>
-          <p className="text-sm font-medium text-text-1">Google Drive Connection</p>
-          <p className="text-xs text-text-3">Grant AI access to read your Drive documents</p>
-        </div>
-      </div>
-
-      {isLoading ? (
-        <div className="flex items-center gap-2 text-text-3 text-xs">
-          <Loader2 className="w-3 h-3 animate-spin" /> Checking…
-        </div>
-      ) : status?.connected ? (
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald" />
-            <div>
-              <p className="text-xs font-medium text-emerald">Connected</p>
-              {status.email && <p className="text-xs text-text-3">{status.email}</p>}
-            </div>
-          </div>
-          <button
-            onClick={disconnect}
-            disabled={disconnecting}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-rose-400 hover:bg-rose-400/10 disabled:opacity-40 transition-colors"
-          >
-            {disconnecting ? <Loader2 className="w-3 h-3 animate-spin" /> : <X className="w-3 h-3" />}
-            Disconnect
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          <button
-            onClick={connect}
-            disabled={connecting}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald/20 hover:bg-emerald/35 text-emerald text-sm font-medium disabled:opacity-40 transition-colors"
-          >
-            {connecting
-              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Waiting for authorization…</>
-              : <><ExternalLink className="w-3.5 h-3.5" /> Connect Google Drive</>}
-          </button>
-          <p className="text-xs text-text-3">
-            Requires <span className="font-mono text-text-2">GOOGLE_CLIENT_ID</span> and{" "}
-            <span className="font-mono text-text-2">GOOGLE_CLIENT_SECRET</span> to be set in your{" "}
-            <span className="font-mono text-text-2">.env</span> file.
-          </p>
-        </div>
-      )}
-
-      {connectError && <p className="text-xs text-rose-400">{connectError}</p>}
     </div>
   );
 }

@@ -56,7 +56,8 @@ services:
       - ENV=development
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
-      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-http://localhost:3000/api/integrations/google-drive/callback}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-http://localhost:3000/api/auth/google/callback}
+      - GOOGLE_INTEGRATION_REDIRECT_URI=http://localhost:3000/api/integrations/google/callback
       - RESEND_API_KEY=${RESEND_API_KEY:-}
       - EMAIL_FROM=${EMAIL_FROM:-noreply@lanara.app}
       - SMTP_HOST=${SMTP_HOST:-}
@@ -68,6 +69,21 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  mcp-slack:
+    build:
+      context: ./mcp-servers/slack
+      dockerfile: Dockerfile
+    container_name: lanara-mcp-slack
+    environment:
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
+      - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET:-}
+      - BACKEND_URL=http://backend:8000
+      - DEFAULT_ORG_ID=${DEFAULT_ORG_ID:-}
+    ports:
+      - "8026:8026"
+    depends_on:
+      - backend
 
   frontend:
     build:

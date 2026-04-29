@@ -308,6 +308,22 @@ async def ask_lanara(
             yield "data: [DONE]\n\n"
             return
 
+        # Determine if this is a local (Ollama) model for queue tracking
+        _local_model_id: str | None = None
+        try:
+            from app.models.ai_model import AiModel as _AiModel
+            if payload.model_id:
+                _mr = await db.execute(select(_AiModel).where(_AiModel.id == payload.model_id))
+            else:
+                _mr = await db.execute(
+                    select(_AiModel).where(_AiModel.enabled == True).order_by(_AiModel.created_at).limit(1)  # noqa: E712
+                )
+            _m = _mr.scalar_one_or_none()
+            if _m and _m.type == "local":
+                _local_model_id = _m.model_id
+        except Exception:
+            pass
+
         result = await db.execute(
             select(McpServer)
             .where(McpServer.enabled == True, McpServer.org_id == org_id)
@@ -356,6 +372,10 @@ async def ask_lanara(
                 yield f"data: {json.dumps({'error': str(exc)})}\n\n"
             yield "data: [DONE]\n\n"
             return
+
+        if _local_model_id:
+            from app.utils.ollama_tracking import incr_inflight as _incr
+            await _incr(_local_model_id)
 
         try:
             for _ in range(MAX_TOOL_ROUNDS):
@@ -453,6 +473,9 @@ async def ask_lanara(
             logger.exception("ask_lanara stream error")
             yield f"data: {json.dumps({'error': str(exc)})}\n\n"
         finally:
+            if _local_model_id:
+                from app.utils.ollama_tracking import decr_inflight as _decr
+                await _decr(_local_model_id)
             yield "data: [DONE]\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

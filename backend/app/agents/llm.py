@@ -24,6 +24,41 @@ async def get_active_llm(db: AsyncSession):
     return build_llm(model, provider_api_key=provider_key)
 
 
+async def get_llm_by_role(db: AsyncSession, org_id, role: str):
+    """Return a LangChain chat model for the model assigned to the given role, or None."""
+    result = await _fetch_model_by_role(db, org_id, role)
+    if result is None:
+        return None
+    model, provider_key = result
+    return build_llm(model, provider_api_key=provider_key)
+
+
+async def get_llm_and_model_by_role(db: AsyncSession, org_id, role: str):
+    """Return (llm, AiModel) for the role, or None if not configured."""
+    result = await _fetch_model_by_role(db, org_id, role)
+    if result is None:
+        return None
+    model, provider_key = result
+    return build_llm(model, provider_api_key=provider_key), model
+
+
+async def _fetch_model_by_role(db: AsyncSession, org_id, role: str):
+    import uuid as _uuid
+    if isinstance(org_id, str):
+        org_id = _uuid.UUID(org_id)
+    result = await db.execute(
+        select(AiModel)
+        .options(selectinload(AiModel.provider_rel))
+        .where(AiModel.org_id == org_id, AiModel.role == role, AiModel.enabled == True)  # noqa: E712
+        .limit(1)
+    )
+    model = result.scalar_one_or_none()
+    if model is None:
+        return None
+    provider_key = model.provider_rel.api_key if model.provider_rel else None
+    return model, provider_key
+
+
 async def get_llm_by_id(db: AsyncSession, model_id: str):
     """Return a LangChain chat model for a specific AI model by UUID; falls back to active."""
     result = await db.execute(

@@ -36,6 +36,8 @@ export interface AiModel {
   context_window: number | null;
   capabilities: string[] | null;
   is_auto_managed: boolean;
+  role: string | null;
+  max_concurrent: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -267,6 +269,94 @@ export interface RoleOut {
   permissions: string[];
 }
 
+// ── CRM types ─────────────────────────────────────────────────────────────────
+
+export interface Account {
+  id: string;
+  org_id: string;
+  owner_id: string | null;
+  name: string;
+  domain: string | null;
+  industry: string | null;
+  employee_count: number | null;
+  annual_revenue: number | null;
+  website: string | null;
+  description: string | null;
+  health_score: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Contact {
+  id: string;
+  org_id: string;
+  account_id: string | null;
+  owner_id: string | null;
+  first_name: string;
+  last_name: string;
+  email: string | null;
+  phone: string | null;
+  title: string | null;
+  seniority: string | null;
+  linkedin_url: string | null;
+  last_contacted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OpportunityStage {
+  id: string;
+  org_id: string;
+  name: string;
+  order: number;
+  probability: number;
+  is_won: boolean;
+  is_lost: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Opportunity {
+  id: string;
+  org_id: string;
+  account_id: string | null;
+  stage_id: string | null;
+  owner_id: string | null;
+  name: string;
+  arr: number | null;
+  close_date: string | null;
+  confidence: number | null;
+  deal_type: string | null;
+  description: string | null;
+  health_score: number | null;
+  won_at: string | null;
+  lost_at: string | null;
+  lost_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Activity {
+  id: string;
+  org_id: string;
+  opportunity_id: string | null;
+  account_id: string | null;
+  contact_id: string | null;
+  owner_id: string | null;
+  type: string;
+  subject: string | null;
+  body: string | null;
+  direction: string | null;
+  occurred_at: string;
+  duration_seconds: number | null;
+  ai_summary: string | null;
+  action_items: unknown[] | null;
+  source: string;
+  external_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AuditLogEntry {
   id: number;
   at: string;
@@ -402,6 +492,12 @@ export const api = {
     update: (id: string, payload: { name?: string; type?: string; provider?: string; model_id?: string; base_url?: string; api_key?: string; enabled?: boolean; description?: string }) =>
       req<AiModel>("PATCH", `/ai-models/${id}`, payload),
     delete: (id: string, uninstall = false) => req<void>("DELETE", `/ai-models/${id}${uninstall ? "?uninstall=true" : ""}`),
+    setRole: (id: string, role: string | null) => req<AiModel>("PATCH", `/ai-models/${id}/role`, { role }),
+    ollamaQueue: (baseUrl?: string) =>
+      req<{ models: Record<string, { processing: number; pending: number }> }>(
+        "GET",
+        `/ai-models/providers/ollama/queue${baseUrl ? `?base_url=${encodeURIComponent(baseUrl)}` : ""}`,
+      ),
     providerModels: (provider: string, baseUrl?: string) =>
       req<{ id: string; name: string }[]>(
         "GET",
@@ -637,10 +733,10 @@ export const api = {
   config: () => req<{ ollama_url: string }>("GET", "/config"),
 
   integrations: {
-    googleDrive: {
-      authUrl: () => req<{ auth_url: string }>("GET", "/integrations/google-drive/auth-url"),
-      status: () => req<{ connected: boolean; email: string | null }>("GET", "/integrations/google-drive/status"),
-      disconnect: () => req<{ ok: boolean }>("DELETE", "/integrations/google-drive"),
+    google: {
+      authUrl: () => req<{ auth_url: string }>("GET", "/integrations/google/auth-url"),
+      status: () => req<{ connected: boolean; email: string | null }>("GET", "/integrations/google/status"),
+      disconnect: () => req<{ ok: boolean }>("DELETE", "/integrations/google"),
     },
   },
 
@@ -696,6 +792,47 @@ export const api = {
         }
       } finally { reader.releaseLock(); }
       onDone();
+    },
+  },
+
+  crm: {
+    accounts: {
+      list: () => req<Account[]>("GET", "/accounts"),
+      create: (payload: Partial<Account>) => req<Account>("POST", "/accounts", payload),
+      update: (id: string, payload: Partial<Account>) => req<Account>("PATCH", `/accounts/${id}`, payload),
+      delete: (id: string) => req<void>("DELETE", `/accounts/${id}`),
+    },
+    contacts: {
+      list: (accountId?: string) =>
+        req<Contact[]>("GET", `/contacts${accountId ? `?account_id=${accountId}` : ""}`),
+      create: (payload: Partial<Contact>) => req<Contact>("POST", "/contacts", payload),
+      update: (id: string, payload: Partial<Contact>) => req<Contact>("PATCH", `/contacts/${id}`, payload),
+      delete: (id: string) => req<void>("DELETE", `/contacts/${id}`),
+    },
+    stages: {
+      list: () => req<OpportunityStage[]>("GET", "/opportunity-stages"),
+      create: (payload: Partial<OpportunityStage>) => req<OpportunityStage>("POST", "/opportunity-stages", payload),
+      update: (id: string, payload: Partial<OpportunityStage>) => req<OpportunityStage>("PATCH", `/opportunity-stages/${id}`, payload),
+    },
+    opportunities: {
+      list: (params?: { account_id?: string; owner_id?: string; stage_id?: string }) => {
+        const qs = params ? "?" + new URLSearchParams(Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)])).toString() : "";
+        return req<Opportunity[]>("GET", `/opportunities${qs}`);
+      },
+      create: (payload: Partial<Opportunity>) => req<Opportunity>("POST", "/opportunities", payload),
+      update: (id: string, payload: Partial<Opportunity>) => req<Opportunity>("PATCH", `/opportunities/${id}`, payload),
+      delete: (id: string) => req<void>("DELETE", `/opportunities/${id}`),
+      pipeline: () => req<{ stage_id: string | null; count: number; total_arr: number }[]>("GET", "/opportunities/summary/pipeline"),
+    },
+    activities: {
+      list: (params?: { opportunity_id?: string; account_id?: string }) => {
+        const qs = params ? "?" + new URLSearchParams(Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)])).toString() : "";
+        return req<Activity[]>("GET", `/activities${qs}`);
+      },
+      create: (payload: Partial<Activity>) => req<Activity>("POST", "/activities", payload),
+      update: (id: string, payload: Partial<Activity>) => req<Activity>("PATCH", `/activities/${id}`, payload),
+      enrich: () => req<{ queued: number; message: string }>("POST", "/activities/enrich"),
+      cleanupSpam: () => req<{ activities_deleted: number; contacts_deleted: number; accounts_deleted: number; message: string }>("POST", "/activities/cleanup-spam"),
     },
   },
 

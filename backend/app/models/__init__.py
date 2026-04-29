@@ -19,6 +19,13 @@ from app.models.session_model import Session
 from app.models.magic_link import MagicLink
 from app.models.sso import OrgSsoConfig, OrgEmailDomain
 from app.models.audit_log import AuditLog
+from app.models.signal_event import SignalEvent, IntegrationConfig
+from app.models.deal_intelligence import DealSignal, BuyingGroupMember
+from app.models.commission import CommissionPlan, QuotaAllocation, AttainmentSnapshot
+from app.models.account import Account
+from app.models.contact import Contact
+from app.models.opportunity import Opportunity, OpportunityStage
+from app.models.activity import Activity
 
 __all__ = [
     "Base",
@@ -48,4 +55,20 @@ __all__ = [
     "OrgSsoConfig",
     "OrgEmailDomain",
     "AuditLog",
+    # Signal pipeline
+    "SignalEvent",
+    "IntegrationConfig",
+    # Deal intelligence
+    "DealSignal",
+    "BuyingGroupMember",
+    # Commission
+    "CommissionPlan",
+    "QuotaAllocation",
+    "AttainmentSnapshot",
+    # CRM
+    "Account",
+    "Contact",
+    "Opportunity",
+    "OpportunityStage",
+    "Activity",
 ]
