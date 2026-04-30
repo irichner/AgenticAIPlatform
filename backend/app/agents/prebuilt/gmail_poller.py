@@ -144,7 +144,7 @@ async def _fetch_threads(
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=30,
         ) as client:
-            BASE_QUERY = "from:me -in:spam -in:trash -category:promotions"
+            BASE_QUERY = "-from:me in:inbox -in:spam -in:trash -category:promotions"
             params: dict = {"maxResults": max_results}
             if page_token:
                 params["pageToken"] = page_token
