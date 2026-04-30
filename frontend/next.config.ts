@@ -6,6 +6,7 @@ const BACKEND_URL = process.env.BACKEND_URL ?? "localhost:8000";
 
 const nextConfig: NextConfig = {
   devIndicators: false,
+  output: "standalone",
   async rewrites() {
     return [
       {
@@ -17,9 +18,6 @@ const nextConfig: NextConfig = {
   typescript: {
     // TODO: re-enable after fixing app/dashboard/page.tsx:215 type error
     ignoreBuildErrors: true,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
   },
 };
 
