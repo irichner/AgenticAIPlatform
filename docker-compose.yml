@@ -78,6 +78,9 @@ services:
       - BACKEND_URL=backend:8000
     depends_on:
       - backend
+    labels:
+      - "coolify.managed=true"
+      - "coolify.port=3000"
 
 volumes:
   postgres_data:
