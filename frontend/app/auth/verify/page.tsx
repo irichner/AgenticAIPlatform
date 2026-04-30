@@ -1,9 +1,9 @@
 "use client";
-export const dynamic = "force-dynamic";
-import { useEffect } from "react";
+
+import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-export default function VerifyPage() {
+function VerifyContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -24,5 +24,22 @@ export default function VerifyPage() {
         <p className="text-sm text-text-2">Signing you in…</p>
       </div>
     </div>
+  );
+}
+
+export default function VerifyPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-surface-0">
+          <div className="text-center">
+            <div className="w-8 h-8 border-2 border-violet border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-sm text-text-2">Loading…</p>
+          </div>
+        </div>
+      }
+    >
+      <VerifyContent />
+    </Suspense>
   );
 }
