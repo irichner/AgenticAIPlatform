@@ -95,7 +95,7 @@ async def _get_cursor(org_id: str, user_id: str) -> int:
     val = await get_redis().get(_key("gmail_poll_cursor", org_id, user_id))
     if val:
         return int(val)
-    return int((datetime.now(timezone.utc) - timedelta(days=7)).timestamp())
+    return int((datetime.now(timezone.utc) - timedelta(days=90)).timestamp())
 
 
 async def _set_cursor(org_id: str, user_id: str, epoch: int) -> None:
