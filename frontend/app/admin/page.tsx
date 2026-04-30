@@ -1035,15 +1035,18 @@ function ProvidersView({
         </div>
         {connectError   && <p className="text-xs text-rose-400">{connectError}</p>}
         {connectSuccess && <p className="text-xs text-emerald-400 flex items-center gap-1"><Check className="w-3 h-3" />{connectSuccess}</p>}
-        <button
-          onClick={handleConnect}
-          disabled={!selectedProvider || !apiKey.trim() || connecting}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-violet/20 hover:bg-violet/35 text-violet text-sm font-medium disabled:opacity-40 transition-colors"
-        >
-          {connecting
-            ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Connecting…</>
-            : <><Check className="w-3.5 h-3.5" /> Connect</>}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleConnect}
+            disabled={!selectedProvider || !apiKey.trim() || connecting}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-violet/20 hover:bg-violet/35 text-violet text-sm font-medium disabled:opacity-40 transition-colors"
+          >
+            {connecting
+              ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Connecting…</>
+              : <><Check className="w-3.5 h-3.5" /> Connect</>}
+          </button>
+          {connecting && <p className="text-xs text-text-3">Validating key &amp; syncing models…</p>}
+        </div>
       </div>
 
       {/* Connected list */}

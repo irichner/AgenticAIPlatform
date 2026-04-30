@@ -51,6 +51,7 @@ async def _refresh_access_token(refresh_token: str, client_id: str, client_secre
             })
         data = resp.json()
         if "access_token" not in data:
+            print(f"[gmail_poller] token refresh failed: {data.get('error', 'unknown')} — {data.get('error_description', '')}")
             return None
         expires_in = int(data.get("expires_in", 3600))
         expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in - 60)
@@ -229,6 +230,7 @@ async def _poll_user(org_id: str, user_id: str, token_row, db) -> int:
 
     access_token = await _get_valid_token(token_row, db)
     if not access_token:
+        print(f"[gmail_poller] org={org_id} user={user_id} — no valid token (expired/refresh failed), skipping")
         return 0
 
     page_token = await _get_page_token(org_id, user_id)
@@ -240,6 +242,7 @@ async def _poll_user(org_id: str, user_id: str, token_row, db) -> int:
     if not threads:
         await _set_page_token(org_id, user_id, None)
         await _set_cursor(org_id, user_id, int(datetime.now(timezone.utc).timestamp()))
+        print(f"[gmail_poller] org={org_id} user={user_id} — 0 threads found (after_epoch={after_epoch})")
         return 0
 
     new_count = 0
