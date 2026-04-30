@@ -155,19 +155,15 @@ async def _fetch_threads(
                 params["q"] = BASE_QUERY
 
             resp = await client.get("/users/me/threads", params=params)
-            if resp.status_code == 403:
-                err = resp.json().get("error", {})
-                if "insufficientPermissions" in str(err) or "scope" in str(err).lower():
-                    print("[gmail_poller] Token lacks Gmail scope — reconnect Google in Integrations")
-                return [], None
+            print(f"[gmail_poller] Gmail API status={resp.status_code} params={params}")
             if resp.status_code != 200:
-                print(f"[gmail_poller] Gmail API error {resp.status_code}: {resp.text[:200]}")
+                print(f"[gmail_poller] Gmail API error body: {resp.text[:400]}")
                 return [], None
 
             body = resp.json()
             thread_stubs = body.get("threads", [])
             next_page_token = body.get("nextPageToken")
-            print(f"[gmail_poller] Gmail API status={resp.status_code} threads={len(thread_stubs)} params={params}")
+            print(f"[gmail_poller] Gmail threads found: {len(thread_stubs)}")
 
             threads = []
             for stub in thread_stubs:
