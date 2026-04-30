@@ -12,6 +12,8 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+ARG BACKEND_URL=backend:8000
+ENV BACKEND_URL=$BACKEND_URL
 RUN npm run build
 
 # ---- runner stage: minimal production image ----
