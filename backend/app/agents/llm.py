@@ -19,7 +19,7 @@ async def get_active_llm(db: AsyncSession):
     )
     model = result.scalar_one_or_none()
     if model is None:
-        return _default_llm()
+        return await _default_llm(db)
     provider_key = model.provider_rel.api_key if model.provider_rel else None
     return build_llm(model, provider_api_key=provider_key)
 
@@ -73,12 +73,18 @@ async def get_llm_by_id(db: AsyncSession, model_id: str):
     return build_llm(model, provider_api_key=provider_key)
 
 
-def _default_llm():
+async def _default_llm(db: AsyncSession | None = None):
     from langchain_anthropic import ChatAnthropic
-    return ChatAnthropic(
-        model=os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
-        temperature=0,
-    )
+    from app.core.settings_service import get_setting_any_org
+    model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    api_key = None
+    if db is not None:
+        model = await get_setting_any_org(db, "anthropic_model") or model
+        api_key = await get_setting_any_org(db, "anthropic_api_key")
+    kwargs: dict = {"model": model, "temperature": 0}
+    if api_key:
+        kwargs["api_key"] = api_key
+    return ChatAnthropic(**kwargs)
 
 
 def build_llm(model: AiModel, provider_api_key: str | None = None):

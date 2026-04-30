@@ -19,23 +19,28 @@ MCP_EMAIL_URL = os.getenv("MCP_EMAIL_URL", "http://mcp-email:8025")
 MCP_SLACK_URL = os.getenv("MCP_SLACK_URL", "http://mcp-slack:8026")
 BRIEFING_CHANNEL = os.getenv("BRIEFING_SLACK_CHANNEL", "#manager-briefings")
 
-ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+async def _load_anthropic_config(db, org_id: str) -> tuple[str, str]:
+    from uuid import UUID as _UUID
+    from app.core.settings_service import get_setting
+    oid = _UUID(org_id)
+    api_key = await get_setting(db, oid, "anthropic_api_key") or os.getenv("ANTHROPIC_API_KEY", "")
+    model = await get_setting(db, oid, "anthropic_model") or os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+    return api_key, model
 
 
-async def _claude(prompt: str, max_tokens: int = 1000) -> str:
+async def _claude(prompt: str, max_tokens: int, api_key: str, model: str) -> str:
     try:
         import httpx
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
-                    "x-api-key": ANTHROPIC_API_KEY,
+                    "x-api-key": api_key,
                     "anthropic-version": "2023-06-01",
                     "content-type": "application/json",
                 },
                 json={
-                    "model": ANTHROPIC_MODEL,
+                    "model": model,
                     "max_tokens": max_tokens,
                     "messages": [{"role": "user", "content": prompt}],
                 },
@@ -108,6 +113,7 @@ async def _gather_team_context(db: Any, org_id: str) -> dict:
 
 async def generate_briefing(org_id: str, db: Any) -> str:
     """Generate a manager intelligence briefing for the org."""
+    api_key, model = await _load_anthropic_config(db, org_id)
     ctx = await _gather_team_context(db, org_id)
 
     prompt = f"""You are a revenue intelligence assistant generating a daily manager briefing.
@@ -126,7 +132,7 @@ Write a crisp manager briefing (5–8 bullet points max) covering:
 
 Be direct and specific. Use $ amounts. No fluff."""
 
-    return await _claude(prompt)
+    return await _claude(prompt, max_tokens=1000, api_key=api_key, model=model)
 
 
 async def _post_to_slack(channel: str, text: str) -> None:

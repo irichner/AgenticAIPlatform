@@ -29,6 +29,7 @@ from app.models.account import Account
 from app.models.contact import Contact
 from app.models.opportunity import Opportunity, OpportunityStage
 from app.models.activity import Activity
+from app.models.platform_setting import PlatformSetting
 
 __all__ = [
     "Base",
@@ -77,4 +78,5 @@ __all__ = [
     "Opportunity",
     "OpportunityStage",
     "Activity",
+    "PlatformSetting",
 ]

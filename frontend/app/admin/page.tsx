@@ -22,6 +22,7 @@ import { AuditLogTab } from "@/components/admin/AuditLogTab";
 import { SessionsTab } from "@/components/admin/SessionsTab";
 import { SsoTab } from "@/components/admin/SsoTab";
 import { OrgSettingsTab } from "@/components/admin/OrgSettingsTab";
+import { PlatformSettingsTab } from "@/components/admin/PlatformSettingsTab";
 
 type GroupId = "intelligence" | "knowledge" | "settings" | "team" | "security";
 
@@ -158,7 +159,7 @@ function AdminPageInner() {
           {activeGroup === "knowledge"                                   && <div className="p-6"><KnowledgeSourcesTab /></div>}
           {activeGroup === "settings"     && activeSubTab === "org"        && <OrgSettingsTab />}
           {activeGroup === "settings"     && activeSubTab === "workspaces" && <div className="p-6"><WorkspacesTab /></div>}
-          {activeGroup === "settings"     && activeSubTab === "platform"   && <div className="p-6"><SettingsTab /></div>}
+          {activeGroup === "settings"     && activeSubTab === "platform"   && <div className="p-6"><PlatformSettingsTab /></div>}
           {activeGroup === "team"         && activeSubTab === "members"  && <MembersTab />}
           {activeGroup === "team"         && activeSubTab === "roles"    && <RolesTab />}
           {activeGroup === "security"     && activeSubTab === "sso"      && <SsoTab />}

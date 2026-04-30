@@ -21,20 +21,31 @@ import httpx
 from app.core.redis_client import get_redis
 
 POLL_INTERVAL = int(os.getenv("GMAIL_POLL_INTERVAL_SECONDS", str(5 * 60)))
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+# Env-var fallbacks for Google credentials
+_GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+_GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 TOKEN_URI = "https://oauth2.googleapis.com/token"
+
+
+async def _load_google_credentials(db, org_id: str) -> tuple[str, str]:
+    """Return (client_id, client_secret) from platform settings with env fallbacks."""
+    from uuid import UUID as _UUID
+    from app.core.settings_service import get_setting
+    oid = _UUID(org_id)
+    client_id = await get_setting(db, oid, "google_client_id") or _GOOGLE_CLIENT_ID
+    client_secret = await get_setting(db, oid, "google_client_secret") or _GOOGLE_CLIENT_SECRET
+    return client_id, client_secret
 
 
 # ── Token helpers ─────────────────────────────────────────────────────────────
 
-async def _refresh_access_token(refresh_token: str) -> tuple[str, datetime] | None:
+async def _refresh_access_token(refresh_token: str, client_id: str, client_secret: str) -> tuple[str, datetime] | None:
     """Exchange a refresh token for a fresh access token. Returns (token, expiry) or None."""
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(TOKEN_URI, data={
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
+                "client_id": client_id,
+                "client_secret": client_secret,
                 "refresh_token": refresh_token,
                 "grant_type": "refresh_token",
             })
@@ -61,7 +72,8 @@ async def _get_valid_token(row, db) -> str | None:
     if not row.refresh_token:
         return None
 
-    result = await _refresh_access_token(row.refresh_token)
+    client_id, client_secret = await _load_google_credentials(db, str(row.org_id))
+    result = await _refresh_access_token(row.refresh_token, client_id, client_secret)
     if not result:
         return None
 
@@ -132,7 +144,7 @@ async def _fetch_threads(
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=30,
         ) as client:
-            BASE_QUERY = "-in:spam -in:trash -category:promotions"
+            BASE_QUERY = "from:me -in:spam -in:trash -category:promotions"
             params: dict = {"maxResults": max_results}
             if page_token:
                 params["pageToken"] = page_token

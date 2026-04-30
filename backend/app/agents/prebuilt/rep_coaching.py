@@ -18,23 +18,29 @@ from datetime import datetime, date, timezone, timedelta
 from typing import Any
 from uuid import UUID
 
-ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+async def _load_anthropic_config(db, org_id: str) -> tuple[str, str]:
+    """Return (api_key, model) from platform settings with env fallbacks."""
+    from uuid import UUID as _UUID
+    from app.core.settings_service import get_setting
+    oid = _UUID(org_id)
+    api_key = await get_setting(db, oid, "anthropic_api_key") or os.getenv("ANTHROPIC_API_KEY", "")
+    model = await get_setting(db, oid, "anthropic_model") or os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+    return api_key, model
 
 
-async def _claude(prompt: str, max_tokens: int = 1500) -> str:
+async def _claude(prompt: str, max_tokens: int, api_key: str, model: str) -> str:
     try:
         import httpx
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
-                    "x-api-key": ANTHROPIC_API_KEY,
+                    "x-api-key": api_key,
                     "anthropic-version": "2023-06-01",
                     "content-type": "application/json",
                 },
                 json={
-                    "model": ANTHROPIC_MODEL,
+                    "model": model,
                     "max_tokens": max_tokens,
                     "messages": [{"role": "user", "content": prompt}],
                 },
@@ -143,6 +149,7 @@ async def _get_rep_context(db: Any, org_id: str, user_id: str) -> dict:
 
 async def generate_coaching_insights(org_id: str, user_id: str, db: Any) -> dict:
     """Generate AI coaching insights for a specific rep."""
+    api_key, model = await _load_anthropic_config(db, org_id)
     ctx = await _get_rep_context(db, org_id, user_id)
 
     prompt = f"""You are a world-class sales coach. Analyze this rep's data and provide specific, actionable coaching.
@@ -171,7 +178,7 @@ Generate a JSON coaching response with this exact structure:
 
 Return ONLY valid JSON, no markdown."""
 
-    raw = await _claude(prompt)
+    raw = await _claude(prompt, max_tokens=1500, api_key=api_key, model=model)
 
     try:
         # Strip any markdown fences

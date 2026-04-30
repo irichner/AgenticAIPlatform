@@ -144,7 +144,7 @@ async def invite_tenant_member(
         use_preflight=False,
     )
     link = f"{_APP_BASE_URL}/auth/verify?token={token}"
-    await send_magic_link(str(body.email), link, purpose="invite")
+    await send_magic_link(str(body.email), link, purpose="invite", db=db)
     return {"detail": "Invitation sent"}
 
 

@@ -159,7 +159,7 @@ async def invite_org_member(
         use_preflight=False,
     )
     link = f"{_APP_BASE_URL}/auth/verify?token={token}"
-    await send_magic_link(str(body.email), link, purpose="invite")
+    await send_magic_link(str(body.email), link, purpose="invite", db=db)
     await _audit(db, ctx, "org.member.invite", "user", str(body.email))
     return {"detail": "Invitation sent"}
 

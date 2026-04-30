@@ -34,8 +34,6 @@ from app.models.approval_request import ApprovalRequest
 from app.models.business_unit import BusinessUnit
 from app.models.run import Run
 
-ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
-
 _COST_PER_1K = {
     "claude-sonnet-4-6": {"input": 0.003, "output": 0.015},
     "claude-opus-4-7": {"input": 0.015, "output": 0.075},

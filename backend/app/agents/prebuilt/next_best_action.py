@@ -100,9 +100,12 @@ Be direct and actionable. Format as JSON:
         from langchain_anthropic import ChatAnthropic
         from langchain_core.messages import HumanMessage
 
+        from app.core.settings_service import get_setting
+        _api_key = await get_setting(db, org_id, "anthropic_api_key") or os.getenv("ANTHROPIC_API_KEY", "")
+        _model = await get_setting(db, org_id, "anthropic_model") or os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
         llm = ChatAnthropic(
-            model=os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001"),
-            api_key=os.getenv("ANTHROPIC_API_KEY", ""),
+            model=_model,
+            api_key=_api_key,
             max_tokens=512,
         )
         response = await llm.ainvoke([HumanMessage(content=prompt)])

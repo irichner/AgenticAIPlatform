@@ -52,7 +52,7 @@ async def request_magic_link(
 
     link = f"{_API_PUBLIC_URL}/api/auth/verify?token={token}"
     try:
-        await send_magic_link(email, link, purpose="login")
+        await send_magic_link(email, link, purpose="login", db=db)
     except Exception as exc:
         logger.error("Failed to send magic link to %s: %s", email, exc)
         raise HTTPException(503, "Email delivery failed — please try again later")
@@ -257,11 +257,11 @@ async def revoke_session_endpoint(
 # ── Google OAuth ──────────────────────────────────────────────────────────
 
 @router.get("/google/authorize")
-async def google_authorize() -> Response:
+async def google_authorize(db: AsyncSession = Depends(get_db)) -> Response:
     from starlette.responses import RedirectResponse
     from app.auth.google_oauth import build_authorize_url, save_state
 
-    url, state = build_authorize_url()
+    url, state = await build_authorize_url(db=db)
     await save_state(state)
     return RedirectResponse(url=url)
 
@@ -284,7 +284,7 @@ async def google_callback(
         raise HTTPException(400, "Invalid OAuth state")
 
     try:
-        userinfo = await fetch_userinfo(code)
+        userinfo = await fetch_userinfo(code, db=db)
     except Exception as exc:
         logger.error("Google OAuth exchange failed: %s", exc)
         raise HTTPException(502, "Failed to exchange OAuth code")

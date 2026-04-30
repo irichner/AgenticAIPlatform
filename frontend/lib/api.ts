@@ -451,6 +451,23 @@ export interface TableInfo {
   has_org_id: boolean;
 }
 
+export interface PlatformSettingOut {
+  key: string;
+  label: string;
+  group: string;
+  group_label: string;
+  is_secret: boolean;
+  is_set: boolean;
+  value: string | null;
+  description: string;
+}
+
+export interface PlatformSettingGroupOut {
+  group: string;
+  group_label: string;
+  settings: PlatformSettingOut[];
+}
+
 export const api = {
   auth: {
     me: () => req<{ id: string; email: string; full_name: string | null; orgs: OrgOut[]; permissions: Record<string, string[]> }>("GET", "/auth/me"),
@@ -510,6 +527,12 @@ export const api = {
         verify: (orgId: string, domain: string) => req<{ detail: string }>("POST", `/orgs/${orgId}/domains/${domain}/verify`),
         remove: (orgId: string, domain: string) => req<{ detail: string }>("DELETE", `/orgs/${orgId}/domains/${domain}`),
       },
+    },
+    platformSettings: {
+      list: (orgId: string) =>
+        req<PlatformSettingGroupOut[]>("GET", `/orgs/${orgId}/platform-settings`),
+      update: (orgId: string, settings: { key: string; value: string }[]) =>
+        req<PlatformSettingGroupOut[]>("PUT", `/orgs/${orgId}/platform-settings`, { settings }),
     },
   },
 

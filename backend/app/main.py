@@ -158,6 +158,7 @@ from app.routers.leaderboard import router as leaderboard_router
 from app.routers.coaching import router as coaching_router
 from app.routers.schedules import router as schedules_router
 from app.routers.agent_db_policies import router as agent_db_policies_router
+from app.routers.platform_settings import router as platform_settings_router
 
 app.include_router(health_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
@@ -200,6 +201,7 @@ app.include_router(leaderboard_router, prefix="/api")
 app.include_router(coaching_router, prefix="/api")
 app.include_router(schedules_router, prefix="/api")
 app.include_router(agent_db_policies_router, prefix="/api")
+app.include_router(platform_settings_router, prefix="/api")
 
 @app.get("/")
 async def root():

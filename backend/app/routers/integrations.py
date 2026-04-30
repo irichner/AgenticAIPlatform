@@ -19,12 +19,26 @@ from app.models.user import User
 
 router = APIRouter(prefix="/integrations/google", tags=["integrations"])
 
+# Env-var fallbacks — overridden per-request from platform settings when org context is available
 GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI  = os.getenv(
     "GOOGLE_INTEGRATION_REDIRECT_URI",
     os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:3000/api/integrations/google/callback"),
 )
+
+
+async def _get_google_integration_config(db: AsyncSession, org_id: UUID) -> tuple[str, str, str]:
+    """Return (client_id, client_secret, redirect_uri) from DB settings with env fallbacks."""
+    from app.core.settings_service import get_setting
+    client_id = await get_setting(db, org_id, "google_client_id") or GOOGLE_CLIENT_ID
+    client_secret = await get_setting(db, org_id, "google_client_secret") or GOOGLE_CLIENT_SECRET
+    redirect_uri = (
+        await get_setting(db, org_id, "google_integration_redirect_uri")
+        or await get_setting(db, org_id, "google_redirect_uri")
+        or GOOGLE_REDIRECT_URI
+    )
+    return client_id, client_secret, redirect_uri
 SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly",
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -38,14 +52,14 @@ SCOPES = [
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 
-def _client_config() -> dict:
+def _client_config(client_id: str, client_secret: str, redirect_uri: str) -> dict:
     return {
         "web": {
-            "client_id": GOOGLE_CLIENT_ID,
-            "client_secret": GOOGLE_CLIENT_SECRET,
+            "client_id": client_id,
+            "client_secret": client_secret,
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": TOKEN_URI,
-            "redirect_uris": [GOOGLE_REDIRECT_URI],
+            "redirect_uris": [redirect_uri],
         }
     }
 
@@ -73,10 +87,11 @@ async def get_auth_url(
     db: AsyncSession = Depends(get_db),
 ):
     """Generate a Google OAuth authorization URL for the current user."""
-    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+    client_id, client_secret, redirect_uri = await _get_google_integration_config(db, org_id)
+    if not client_id or not client_secret:
         raise HTTPException(
             status_code=400,
-            detail="GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set in environment.",
+            detail="Google OAuth credentials are not configured. Set them in Admin → Settings → Platform.",
         )
     try:
         from google_auth_oauthlib.flow import Flow
@@ -84,7 +99,7 @@ async def get_auth_url(
         # State encodes: "{random}|{org_id}|{user_id}" so the callback can restore context.
         google_state = f"{random_state}|{str(org_id)}|{str(user.id)}"
         flow = Flow.from_client_config(
-            _client_config(), scopes=SCOPES, redirect_uri=GOOGLE_REDIRECT_URI
+            _client_config(client_id, client_secret, redirect_uri), scopes=SCOPES, redirect_uri=redirect_uri
         )
         auth_url, _ = flow.authorization_url(
             access_type="offline",
@@ -206,8 +221,12 @@ async def oauth_callback(
         from google_auth_oauthlib.flow import Flow
         import httpx
 
+        if callback_org_id:
+            cb_client_id, cb_client_secret, cb_redirect_uri = await _get_google_integration_config(db, callback_org_id)
+        else:
+            cb_client_id, cb_client_secret, cb_redirect_uri = GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI
         flow = Flow.from_client_config(
-            _client_config(), scopes=SCOPES, redirect_uri=GOOGLE_REDIRECT_URI, state=stored_state
+            _client_config(cb_client_id, cb_client_secret, cb_redirect_uri), scopes=SCOPES, redirect_uri=cb_redirect_uri, state=stored_state
         )
         if stored_verifier:
             flow.code_verifier = stored_verifier

@@ -3,13 +3,14 @@
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
+import { Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/auth";
 
 // Deterministic system role IDs from migration 0014
 const ROLE_ORG_ADMIN  = "00000000-0000-0000-0000-000000000002";
 const ROLE_ORG_MEMBER = "00000000-0000-0000-0000-000000000003";
 
-const TOTAL_STEPS = 4;
+const TOTAL_STEPS = 5;
 
 interface Invite {
   email: string;
@@ -341,6 +342,64 @@ function ProgressBar({ step }: { step: number }) {
   );
 }
 
+function StepConnectGmail({ orgId }: { orgId: string | null }) {
+  const [connecting, setConnecting] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleConnect() {
+    if (!orgId) return;
+    setConnecting(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/integrations/google/auth-url?org_id=${orgId}`, {
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (data.auth_url) {
+        window.location.href = data.auth_url;
+      } else {
+        setError(data.detail ?? "Could not get authorization URL.");
+        setConnecting(false);
+      }
+    } catch {
+      setError("Failed to start Google connection.");
+      setConnecting(false);
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-text-2">
+        Connect your Gmail so Lanara can monitor your email activity and surface rep coaching insights.
+        You can also do this later from <strong className="text-text-1">Integrations</strong>.
+      </p>
+
+      <button
+        type="button"
+        onClick={handleConnect}
+        disabled={connecting}
+        className="w-full flex items-center justify-center gap-3 rounded-lg border border-border
+                   bg-surface-0 px-4 py-3 text-sm font-medium text-text-1 hover:bg-surface-2
+                   disabled:opacity-50 transition"
+      >
+        {connecting ? (
+          <Loader2 size={16} className="animate-spin text-text-3" />
+        ) : (
+          <svg viewBox="0 0 48 48" className="w-4 h-4 shrink-0">
+            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+          </svg>
+        )}
+        {connecting ? "Redirecting to Google…" : "Connect Gmail"}
+      </button>
+
+      {error && <p className="text-xs text-red-400">{error}</p>}
+    </div>
+  );
+}
+
 // ── Step metadata ─────────────────────────────────────────────────────────────
 
 const STEPS = [
@@ -348,6 +407,7 @@ const STEPS = [
   { title: "Your profile",             subtitle: "Let your team know who you are." },
   { title: "Invite teammates",         subtitle: "Bring your team along. You can skip this." },
   { title: "Your first workspace",     subtitle: "Name the workspace where your data lives." },
+  { title: "Connect your inbox",       subtitle: "Let Lanara monitor your Gmail activity." },
 ];
 
 // ── Main wizard ───────────────────────────────────────────────────────────────
@@ -375,11 +435,15 @@ export default function OnboardingPage() {
   // Step 4
   const [tenantName, setTenantName] = useState("");
 
+  // Step 5
+  const [createdOrgId, setCreatedOrgId] = useState<string | null>(null);
+
   function canAdvance(): boolean {
     if (step === 1) return orgName.trim().length > 0 && slug.trim().length > 0;
     if (step === 2) return fullName.trim().length > 0;
     if (step === 3) return true; // skippable
     if (step === 4) return tenantName.trim().length > 0;
+    if (step === 5) return true; // skippable
     return false;
   }
 
@@ -435,7 +499,8 @@ export default function OnboardingPage() {
       });
 
       refresh();
-      router.push("/");
+      setCreatedOrgId(org.id);
+      setStep(5);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -501,6 +566,9 @@ export default function OnboardingPage() {
                   orgName={orgName}
                 />
               )}
+              {step === 5 && (
+                <StepConnectGmail orgId={createdOrgId} />
+              )}
 
               {error && (
                 <p className="mt-4 text-sm text-red-400">{error}</p>
@@ -511,24 +579,24 @@ export default function OnboardingPage() {
                 <button
                   type="button"
                   onClick={() => setStep((s) => s - 1)}
-                  disabled={step === 1}
+                  disabled={step === 1 || step === 5}
                   className="text-sm text-text-3 hover:text-text-2 disabled:opacity-0 disabled:pointer-events-none transition"
                 >
                   Back
                 </button>
 
                 <div className="flex items-center gap-3">
-                  {step === 3 && (
+                  {(step === 3 || step === 5) && (
                     <button
                       type="button"
-                      onClick={() => setStep((s) => s + 1)}
+                      onClick={() => step === 5 ? router.push("/") : setStep((s) => s + 1)}
                       className="text-sm text-text-3 hover:text-text-2 transition"
                     >
                       Skip
                     </button>
                   )}
 
-                  {step < TOTAL_STEPS ? (
+                  {step < 4 && (
                     <button
                       type="button"
                       onClick={() => setStep((s) => s + 1)}
@@ -538,7 +606,8 @@ export default function OnboardingPage() {
                     >
                       Continue
                     </button>
-                  ) : (
+                  )}
+                  {step === 4 && (
                     <button
                       type="button"
                       onClick={handleComplete}
@@ -546,7 +615,17 @@ export default function OnboardingPage() {
                       className="rounded-lg bg-violet px-4 py-2 text-sm font-semibold text-white
                                  transition hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      {submitting ? "Setting up…" : "Complete setup"}
+                      {submitting ? "Setting up…" : "Continue"}
+                    </button>
+                  )}
+                  {step === 5 && (
+                    <button
+                      type="button"
+                      onClick={() => router.push("/")}
+                      className="rounded-lg bg-violet px-4 py-2 text-sm font-semibold text-white
+                                 transition hover:opacity-90"
+                    >
+                      Finish
                     </button>
                   )}
                 </div>

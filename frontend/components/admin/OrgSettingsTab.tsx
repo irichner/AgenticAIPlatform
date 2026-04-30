@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import useSWR from "swr";
 import { Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
@@ -25,9 +25,11 @@ export function OrgSettingsTab() {
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Sync form when org loads (only on first load)
-  if (org && name === "") setName(org.name);
-  if (org && logoUrl === null && org.logo_url !== undefined) setLogoUrl(org.logo_url);
+  useEffect(() => {
+    if (!org) return;
+    setName((prev) => prev || org.name);
+    setLogoUrl((prev) => (prev === null ? (org.logo_url ?? null) : prev));
+  }, [org?.id]);
 
   function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
     setLogoError("");
