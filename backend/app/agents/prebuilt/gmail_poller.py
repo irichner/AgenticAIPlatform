@@ -91,11 +91,11 @@ def _key(prefix: str, org_id: str, user_id: str) -> str:
     return f"{prefix}:{org_id}:{user_id}"
 
 
-async def _get_cursor(org_id: str, user_id: str) -> int:
+async def _get_cursor(org_id: str, user_id: str, backfill_days: int = 90) -> int:
     val = await get_redis().get(_key("gmail_poll_cursor", org_id, user_id))
     if val:
         return int(val)
-    return int((datetime.now(timezone.utc) - timedelta(days=90)).timestamp())
+    return int((datetime.now(timezone.utc) - timedelta(days=backfill_days)).timestamp())
 
 
 async def _set_cursor(org_id: str, user_id: str, epoch: int) -> None:
@@ -233,8 +233,9 @@ async def _poll_user(org_id: str, user_id: str, token_row, db) -> int:
         print(f"[gmail_poller] org={org_id} user={user_id} — no valid token (expired/refresh failed), skipping")
         return 0
 
+    backfill_days = token_row.initial_backfill_days if hasattr(token_row, "initial_backfill_days") and token_row.initial_backfill_days else 90
     page_token = await _get_page_token(org_id, user_id)
-    after_epoch = None if page_token else await _get_cursor(org_id, user_id)
+    after_epoch = None if page_token else await _get_cursor(org_id, user_id, backfill_days=backfill_days)
 
     threads, next_page_token = await _fetch_threads(
         access_token, after_epoch=after_epoch, page_token=page_token

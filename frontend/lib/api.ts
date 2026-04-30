@@ -817,10 +817,10 @@ export const api = {
   integrations: {
     google: {
       authUrl: () => req<{ auth_url: string }>("GET", "/integrations/google/auth-url"),
-      status: () => req<{ connected: boolean; email: string | null; poll_interval_minutes: number | null }>("GET", "/integrations/google/status"),
+      status: () => req<{ connected: boolean; email: string | null; poll_interval_minutes: number | null; initial_backfill_days: number | null }>("GET", "/integrations/google/status"),
       disconnect: () => req<{ ok: boolean }>("DELETE", "/integrations/google"),
-      updateSettings: (body: { poll_interval_minutes: number | null }) =>
-        req<{ connected: boolean; email: string | null; poll_interval_minutes: number | null }>("PATCH", "/integrations/google/settings", body),
+      updateSettings: (body: { poll_interval_minutes?: number | null; initial_backfill_days?: number | null }) =>
+        req<{ connected: boolean; email: string | null; poll_interval_minutes: number | null; initial_backfill_days: number | null }>("PATCH", "/integrations/google/settings", body),
     },
   },
 

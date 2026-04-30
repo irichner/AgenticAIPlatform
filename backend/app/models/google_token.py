@@ -31,3 +31,4 @@ class GoogleOAuthToken(Base, TimestampMixin):
     scopes: Mapped[str | None] = mapped_column(Text, nullable=True)
     oauth_state: Mapped[str | None] = mapped_column(Text, nullable=True)
     poll_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    initial_backfill_days: Mapped[int | None] = mapped_column(Integer, nullable=True)

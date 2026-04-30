@@ -13,6 +13,13 @@ const POLL_OPTIONS = [
   { label: "1 hour",     value: 60 },
 ];
 
+const BACKFILL_OPTIONS = [
+  { label: "7 days",   value: 7 },
+  { label: "30 days",  value: 30 },
+  { label: "90 days",  value: 90 },
+  { label: "6 months", value: 180 },
+];
+
 // ── Logo SVGs ─────────────────────────────────────────────────────────────────
 
 function GoogleLogo({ className }: { className?: string }) {
@@ -199,7 +206,8 @@ function GooglePanel() {
   const [connecting,     setConnecting]     = useState(false);
   const [disconnecting,  setDisconnecting]  = useState(false);
   const [connectError,   setConnectError]   = useState("");
-  const [savingInterval, setSavingInterval] = useState(false);
+  const [savingInterval,  setSavingInterval]  = useState(false);
+  const [savingBackfill,  setSavingBackfill]  = useState(false);
 
   const connect = async () => {
     setConnecting(true);
@@ -268,7 +276,14 @@ function GooglePanel() {
     finally { setSavingInterval(false); }
   };
 
+  const saveBackfill = async (days: number) => {
+    setSavingBackfill(true);
+    try { await api.integrations.google.updateSettings({ initial_backfill_days: days }); mutate(); }
+    finally { setSavingBackfill(false); }
+  };
+
   const currentInterval = status?.poll_interval_minutes ?? 5;
+  const currentBackfill = status?.initial_backfill_days ?? 90;
 
   return (
     <div className="rounded-xl border border-emerald/20 bg-emerald/5 p-5 space-y-4">
@@ -306,27 +321,53 @@ function GooglePanel() {
             </button>
           </div>
 
-          <div className="border-t border-border pt-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Clock className="w-3.5 h-3.5 text-text-3" />
-              <p className="text-xs font-medium text-text-2">Check for new emails every</p>
-              {savingInterval && <Loader2 className="w-3 h-3 animate-spin text-text-3" />}
+          <div className="border-t border-border pt-4 space-y-4">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Clock className="w-3.5 h-3.5 text-text-3" />
+                <p className="text-xs font-medium text-text-2">Check for new emails every</p>
+                {savingInterval && <Loader2 className="w-3 h-3 animate-spin text-text-3" />}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {POLL_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => saveInterval(opt.value)}
+                    disabled={savingInterval}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+                      currentInterval === opt.value
+                        ? "bg-emerald/20 text-emerald border border-emerald/30"
+                        : "bg-surface-2 text-text-2 hover:bg-surface-1 border border-border"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              {POLL_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => saveInterval(opt.value)}
-                  disabled={savingInterval}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
-                    currentInterval === opt.value
-                      ? "bg-emerald/20 text-emerald border border-emerald/30"
-                      : "bg-surface-2 text-text-2 hover:bg-surface-1 border border-border"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Clock className="w-3.5 h-3.5 text-text-3" />
+                <p className="text-xs font-medium text-text-2">Initial email backfill period</p>
+                {savingBackfill && <Loader2 className="w-3 h-3 animate-spin text-text-3" />}
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {BACKFILL_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => saveBackfill(opt.value)}
+                    disabled={savingBackfill}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+                      currentBackfill === opt.value
+                        ? "bg-emerald/20 text-emerald border border-emerald/30"
+                        : "bg-surface-2 text-text-2 hover:bg-surface-1 border border-border"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-text-3 mt-1.5">How far back to pull emails when first connecting (or after clearing history).</p>
             </div>
           </div>
         </div>

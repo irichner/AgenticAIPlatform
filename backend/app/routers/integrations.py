@@ -277,6 +277,7 @@ async def get_status(
         "connected": connected,
         "email": row.user_email if connected else None,
         "poll_interval_minutes": row.poll_interval_minutes if connected else None,
+        "initial_backfill_days": row.initial_backfill_days if connected else None,
     }
 
 
@@ -312,6 +313,7 @@ async def disconnect(
 
 class GoogleSettingsUpdate(BaseModel):
     poll_interval_minutes: int | None = None
+    initial_backfill_days: int | None = None
 
 
 @router.patch("/settings")
@@ -337,11 +339,17 @@ async def update_settings(
             raise HTTPException(status_code=422, detail="poll_interval_minutes must be >= 1")
         row.poll_interval_minutes = payload.poll_interval_minutes
 
+    if payload.initial_backfill_days is not None:
+        if payload.initial_backfill_days < 1:
+            raise HTTPException(status_code=422, detail="initial_backfill_days must be >= 1")
+        row.initial_backfill_days = payload.initial_backfill_days
+
     await db.commit()
     return {
         "connected": True,
         "email": row.user_email,
         "poll_interval_minutes": row.poll_interval_minutes,
+        "initial_backfill_days": row.initial_backfill_days,
     }
 
 
