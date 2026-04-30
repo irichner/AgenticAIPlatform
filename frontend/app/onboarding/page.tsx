@@ -353,6 +353,7 @@ function StepConnectGmail({ orgId }: { orgId: string | null }) {
     try {
       const res = await fetch(`/api/integrations/google/auth-url?org_id=${orgId}`, {
         credentials: "include",
+        headers: { "X-Org-Id": orgId },
       });
       const data = await res.json();
       if (data.auth_url) {
@@ -468,6 +469,7 @@ export default function OnboardingPage() {
         throw new Error(data?.detail ?? "Failed to create organization.");
       }
       const org = await orgRes.json();
+      localStorage.setItem("lanara_org_id", org.id);
 
       // 2. Update user profile
       await fetch("/api/auth/me", {
@@ -484,7 +486,7 @@ export default function OnboardingPage() {
       for (const invite of invites) {
         await fetch(`/api/orgs/${org.id}/members/invite`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "X-Org-Id": org.id },
           credentials: "include",
           body: JSON.stringify({ email: invite.email, role_id: invite.role_id }),
         });
