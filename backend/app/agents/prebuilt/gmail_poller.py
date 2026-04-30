@@ -296,6 +296,7 @@ async def run_gmail_poller_loop() -> None:
     from app.models.google_token import GoogleOAuthToken
     from sqlalchemy import select
 
+    print("[gmail_poller] starting — waiting 30s before first poll")
     await asyncio.sleep(30)  # startup delay
 
     while True:
@@ -309,6 +310,7 @@ async def run_gmail_poller_loop() -> None:
                 )
                 token_rows = result.scalars().all()
 
+            print(f"[gmail_poller] found {len(token_rows)} connected Google account(s)")
             for token_row in token_rows:
                 if not token_row.org_id or not token_row.user_id:
                     continue
@@ -323,6 +325,7 @@ async def run_gmail_poller_loop() -> None:
                     last_poll = await _get_cursor(oid, uid)
                     now_epoch = int(datetime.now(timezone.utc).timestamp())
                     if (now_epoch - last_poll) < user_interval:
+                        print(f"[gmail_poller] org={oid} user={uid} — skipping, next poll in {user_interval - (now_epoch - last_poll)}s")
                         continue
 
                     async with AsyncSessionLocal() as db:
