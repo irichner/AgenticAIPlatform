@@ -1,0 +1,20 @@
+version: '3.9'
+
+# Local dev overrides — auto-merged by `docker compose up`, ignored by Coolify.
+# Add anything here that should ONLY apply locally: host port bindings,
+# volume mounts for hot-reload, dev env vars, etc.
+
+services:
+  backend:
+    ports:
+      - "8000:8000"
+    environment:
+      - ENV=development
+
+  frontend:
+    ports:
+      - "3000:3000"
+
+  mcp-postgres:
+    ports:
+      - "8012:8012"
