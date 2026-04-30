@@ -75,7 +75,7 @@ async def execute_run(run_id: str) -> None:
         }))
 
         try:
-            llm = await get_active_llm(db)
+            llm = await get_active_llm(db, org_id=agent.org_id)
 
             agent_type = None
             if version and version.graph_definition:
@@ -269,7 +269,7 @@ async def execute_run_resume(
         await db.commit()
 
         try:
-            llm = await get_active_llm(db)
+            llm = await get_active_llm(db, org_id=agent.org_id)
 
             bu_res2 = await db.execute(select(BusinessUnit).where(BusinessUnit.id == agent.business_unit_id))
             bu2 = bu_res2.scalar_one_or_none()

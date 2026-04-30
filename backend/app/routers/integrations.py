@@ -383,7 +383,7 @@ async def get_access_token(request: Request, db: AsyncSession = Depends(get_db))
 
     row = result.scalar_one_or_none()
     if not row or not row.refresh_token:
-        raise HTTPException(status_code=401, detail="Google not connected")
+        raise HTTPException(status_code=400, detail="Google not connected")
 
     now = datetime.now(timezone.utc)
     expiry = row.token_expiry
@@ -408,6 +408,6 @@ async def get_access_token(request: Request, db: AsyncSession = Depends(get_db))
             row.token_expiry = creds.expiry
             await db.commit()
         except Exception as exc:
-            raise HTTPException(status_code=401, detail=f"Token refresh failed: {exc}")
+            raise HTTPException(status_code=503, detail=f"Token refresh failed: {exc}")
 
     return {"access_token": row.access_token}

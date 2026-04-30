@@ -8,15 +8,18 @@ from sqlalchemy.orm import selectinload
 from app.models.ai_model import AiModel
 
 
-async def get_active_llm(db: AsyncSession):
+async def get_active_llm(db: AsyncSession, org_id=None):
     """Return a LangChain chat model for the first enabled AI model; falls back to Anthropic."""
-    result = await db.execute(
+    q = (
         select(AiModel)
         .options(selectinload(AiModel.provider_rel))
         .where(AiModel.enabled == True)  # noqa: E712
         .order_by(AiModel.created_at)
         .limit(1)
     )
+    if org_id is not None:
+        q = q.where(AiModel.org_id == org_id)
+    result = await db.execute(q)
     model = result.scalar_one_or_none()
     if model is None:
         return await _default_llm(db)

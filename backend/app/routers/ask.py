@@ -302,7 +302,7 @@ async def ask_lanara(
 ):
     async def event_stream():
         try:
-            llm = await get_llm_by_id(db, payload.model_id) if payload.model_id else await get_active_llm(db)
+            llm = await get_llm_by_id(db, payload.model_id) if payload.model_id else await get_active_llm(db, org_id=org_id)
         except Exception as exc:
             yield f"data: {json.dumps({'error': str(exc)})}\n\n"
             yield "data: [DONE]\n\n"

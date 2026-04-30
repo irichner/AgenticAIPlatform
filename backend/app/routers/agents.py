@@ -60,7 +60,7 @@ async def generate_agent_instructions(
     org_id: UUID = Depends(resolve_org),
     db: AsyncSession = Depends(get_db),
 ):
-    llm = await get_active_llm(db)
+    llm = await get_active_llm(db, org_id=org_id)
 
     context_lines = [f"Agent name: {payload.name}"]
     if payload.description:

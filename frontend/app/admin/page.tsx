@@ -1070,18 +1070,9 @@ function ProvidersView({
   );
 }
 
-function OllamaQueueBadge({ modelId, baseUrl }: { modelId: string; baseUrl: string | null }) {
-  const { data } = useSWR(
-    ["ollama-queue", baseUrl ?? "default"],
-    () => api.aiModels.ollamaQueue(baseUrl ?? undefined),
-    { refreshInterval: 2000, dedupingInterval: 1500 },
-  );
-
-  // Only render if this model appears in /api/ps (currently loaded in Ollama)
-  if (!data) return null;
-  if (!(modelId in data.models)) return null;
-
-  const { processing, pending } = data.models[modelId];
+function OllamaQueueBadge({ modelId, queueData }: { modelId: string; queueData: Record<string, { processing: number; pending: number }> | undefined }) {
+  if (!queueData || !(modelId in queueData)) return null;
+  const { processing, pending } = queueData[modelId];
   const total = processing + pending;
 
   return (
@@ -1098,12 +1089,13 @@ function OllamaQueueBadge({ modelId, baseUrl }: { modelId: string; baseUrl: stri
   );
 }
 
-function ModelRow({ model, onToggle, onDelete, onRoleChange, onUpdate }: {
+function ModelRow({ model, onToggle, onDelete, onRoleChange, onUpdate, ollamaQueueData }: {
   model: AiModel;
   onToggle: () => void;
   onDelete?: () => void;
   onRoleChange?: () => void;
   onUpdate?: () => void;
+  ollamaQueueData?: Record<string, { processing: number; pending: number }>;
 }) {
   const [settingRole, setSettingRole] = useState(false);
   const [updatingConcurrency, setUpdatingConcurrency] = useState(false);
@@ -1150,7 +1142,7 @@ function ModelRow({ model, onToggle, onDelete, onRoleChange, onUpdate }: {
               Comms
             </span>
           )}
-          {model.type === "local" && <OllamaQueueBadge modelId={model.model_id} baseUrl={model.base_url} />}
+          {model.type === "local" && <OllamaQueueBadge modelId={model.model_id} queueData={ollamaQueueData} />}
           {model.type === "local" && (
             <div className="flex items-center gap-1 shrink-0" title="Concurrent inference slots">
               <button
@@ -1210,6 +1202,15 @@ function ModelsView({ models, mutate, loading }: { models: AiModel[]; mutate: ()
   const [deleteTarget, setDeleteTarget] = useState<AiModel | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+
+  // Single shared Ollama queue subscription for all local model rows
+  const localBaseUrls = [...new Set(models.filter(m => m.type === "local").map(m => m.base_url ?? "default"))];
+  const ollamaBaseUrl = localBaseUrls[0] ?? "default";
+  const { data: ollamaQueue } = useSWR(
+    models.some(m => m.type === "local") ? ["ollama-queue", ollamaBaseUrl] : null,
+    () => api.aiModels.ollamaQueue(ollamaBaseUrl === "default" ? undefined : ollamaBaseUrl),
+    { refreshInterval: 10000, dedupingInterval: 9000 },
+  );
 
   const providerNames = [...new Set(models.map((m) => m.provider))].sort();
   const filtered = filterProvider === "all" ? models : models.filter((m) => m.provider === filterProvider);
@@ -1283,7 +1284,7 @@ function ModelsView({ models, mutate, loading }: { models: AiModel[]; mutate: ()
           </div>
           <AnimatePresence>
             {localModels.map((m) => (
-              <ModelRow key={m.id} model={m} onToggle={() => handleToggle(m)} onDelete={() => setDeleteTarget(m)} onRoleChange={mutate} onUpdate={mutate} />
+              <ModelRow key={m.id} model={m} onToggle={() => handleToggle(m)} onDelete={() => setDeleteTarget(m)} onRoleChange={mutate} onUpdate={mutate} ollamaQueueData={ollamaQueue?.models} />
             ))}
           </AnimatePresence>
         </div>

@@ -75,7 +75,7 @@ async def _purge_once() -> None:
         cutoff_audit = now - timedelta(days=cfg["audit_log"])
         result = await db.execute(
             delete(AuditLog)
-            .where(AuditLog.created_at < cutoff_audit)
+            .where(AuditLog.at < cutoff_audit)
             .returning(AuditLog.id)
         )
         deleted_audit = len(result.fetchall())
