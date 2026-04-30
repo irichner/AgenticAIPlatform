@@ -167,6 +167,7 @@ async def _fetch_threads(
             body = resp.json()
             thread_stubs = body.get("threads", [])
             next_page_token = body.get("nextPageToken")
+            print(f"[gmail_poller] Gmail API status={resp.status_code} threads={len(thread_stubs)} params={params}")
 
             threads = []
             for stub in thread_stubs:
