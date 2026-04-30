@@ -63,8 +63,6 @@ services:
       - SMTP_PORT=${SMTP_PORT:-587}
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
-    volumes:
-      - ./backend:/app
     depends_on:
       postgres:
         condition: service_healthy
@@ -78,10 +76,6 @@ services:
     container_name: lanara-frontend
     environment:
       - BACKEND_URL=backend:8000
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
     depends_on:
       - backend
 
