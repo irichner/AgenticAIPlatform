@@ -34,8 +34,8 @@ services:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
     group_add:
-      - video
-      - render
+      - "44"
+      - "991"
     volumes:
       - ollama_data:/root/.ollama
     environment:
