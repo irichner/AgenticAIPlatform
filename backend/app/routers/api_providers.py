@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -50,9 +51,18 @@ async def connect_api_provider(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        provider = await connect_provider(db, payload, org_id=org_id)
+        provider = await asyncio.wait_for(
+            connect_provider(db, payload, org_id=org_id),
+            timeout=25.0,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="Provider validation timed out — the server could not reach the provider API. Check outbound network access.",
+        )
     except ProviderAuthError:
-        raise HTTPException(status_code=401, detail="Invalid API key — check your credentials and try again")
+        # 400 not 401 — 401 triggers a frontend redirect-to-login
+        raise HTTPException(status_code=400, detail="Invalid API key — check your credentials and try again")
     except ProviderNetworkError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     except ProviderUnknownError as exc:

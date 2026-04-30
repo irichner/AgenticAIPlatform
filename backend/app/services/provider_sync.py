@@ -166,7 +166,7 @@ async def _validate_static_provider(name: str, api_key: str, base: str) -> None:
     """Hit a lightweight endpoint to verify the key for static-list providers."""
     headers = {"Authorization": f"Bearer {api_key}"}
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(connect=8.0, read=10.0, write=5.0, pool=5.0)) as client:
             resp = await client.get(f"{base}/models", headers=headers)
             if resp.status_code == 401:
                 raise ProviderAuthError("Invalid API key")
@@ -213,8 +213,10 @@ async def fetch_provider_models(
     else:
         headers = {"Authorization": f"Bearer {api_key}"}
 
+    # Explicit per-phase timeouts: fast connect fail + generous read for large model lists
+    _timeout = httpx.Timeout(connect=8.0, read=15.0, write=5.0, pool=5.0)
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=_timeout) as client:
             resp = await client.get(f"{base}/models", headers=headers)
             if resp.status_code == 401:
                 raise ProviderAuthError("Invalid API key")
