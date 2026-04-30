@@ -980,7 +980,8 @@ function ProvidersView({
   const placeholder = CONNECT_PROVIDER_CATALOG.find((p) => p.name === selectedProvider)?.placeholder ?? "API key…";
 
   const handleConnect = async () => {
-    if (!selectedProvider || !apiKey.trim()) return;
+    if (!selectedProvider) { setConnectError("Select a provider first"); return; }
+    if (!apiKey.trim()) { setConnectError("Enter an API key"); return; }
     setConnecting(true); setConnectError(""); setConnectSuccess("");
     try {
       const result = await api.apiProviders.connect({ name: selectedProvider, api_key: apiKey.trim() });
