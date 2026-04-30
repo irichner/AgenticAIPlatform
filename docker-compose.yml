@@ -8,8 +8,6 @@ services:
       POSTGRES_DB: lanara
       POSTGRES_USER: lanara
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lanara_supersecret}
-    ports:
-      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,8 +19,6 @@ services:
   redis:
     image: redis:7-alpine
     container_name: lanara-redis
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -34,8 +30,6 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: lanara-ollama
-    ports:
-      - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
     environment:
@@ -69,8 +63,6 @@ services:
       - SMTP_PORT=${SMTP_PORT:-587}
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
-    ports:
-      - "8000:8000"
     volumes:
       - ./backend:/app
     depends_on:
@@ -86,8 +78,6 @@ services:
     container_name: lanara-frontend
     environment:
       - BACKEND_URL=backend:8000
-    ports:
-      - "3000:3000"
     volumes:
       - ./frontend:/app
       - /app/node_modules
