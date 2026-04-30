@@ -22,19 +22,18 @@ _TOKEN_URL = "https://oauth2.googleapis.com/token"
 _USERINFO_URL = "https://www.googleapis.com/oauth2/v2/userinfo"
 
 
-async def _get_credentials(db=None) -> tuple[str, str, str]:
-    """Return (client_id, client_secret, redirect_uri), reading DB first."""
-    if db is None:
-        return _CLIENT_ID, _CLIENT_SECRET, _REDIRECT_URI
-    from app.core.settings_service import get_setting_any_org
-    client_id = await get_setting_any_org(db, "google_client_id") or _CLIENT_ID
-    client_secret = await get_setting_any_org(db, "google_client_secret") or _CLIENT_SECRET
-    redirect_uri = await get_setting_any_org(db, "google_redirect_uri") or _REDIRECT_URI
-    return client_id, client_secret, redirect_uri
+def _get_signin_credentials() -> tuple[str, str, str]:
+    """Return (client_id, client_secret, redirect_uri) from env vars only.
+
+    Sign-in always uses Lanara's own Google app — never per-org credentials.
+    Per-org credentials live in platform_settings and are used only for
+    Gmail/Drive integration OAuth, scoped to a specific org_id.
+    """
+    return _CLIENT_ID, _CLIENT_SECRET, _REDIRECT_URI
 
 
 async def build_authorize_url(db=None) -> tuple[str, str]:
-    client_id, _, redirect_uri = await _get_credentials(db)
+    client_id, _, redirect_uri = _get_signin_credentials()
     state = secrets.token_urlsafe(32)
     qs = urllib.parse.urlencode({
         "client_id": client_id,
@@ -64,7 +63,7 @@ async def consume_state(state: str) -> bool:
 
 async def fetch_userinfo(code: str, db=None) -> dict:
     """Exchange authorization code for Google user info."""
-    client_id, client_secret, redirect_uri = await _get_credentials(db)
+    client_id, client_secret, redirect_uri = _get_signin_credentials()
     async with httpx.AsyncClient(timeout=10) as client:
         token_resp = await client.post(_TOKEN_URL, data={
             "code": code,
