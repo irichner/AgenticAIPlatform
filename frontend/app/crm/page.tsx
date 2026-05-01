@@ -4,15 +4,15 @@ import { useState, useMemo } from "react";
 import useSWR from "swr";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Building2, Users, TrendingUp, Plus, Search, MoreHorizontal,
-  Mail, Phone, Globe, DollarSign, Target, Activity, ChevronRight,
-  X, CheckCircle2, AlertCircle, Clock, Briefcase,
+  Building2, Users, TrendingUp, Plus, Search,
+  Mail, Phone, Globe, Target, Activity,
+  ChevronUp, ChevronDown, X, CheckCircle2, AlertCircle, Clock,
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { api, type Account, type Activity, type Contact, type Opportunity, type OpportunityStage } from "@/lib/api";
+import { api, type Account, type Activity as ActivityType, type Contact, type Opportunity, type OpportunityStage } from "@/lib/api";
 import { cn } from "@/lib/cn";
 
-// ── helpers ──────────────────────────────────────────────────────────────────
+// ── helpers ───────────────────────────────────────────────────────────────────
 
 function fmt(n: number | null | undefined, prefix = "") {
   if (n == null) return "—";
@@ -28,9 +28,71 @@ function healthColor(score: number | null) {
   return "text-rose";
 }
 
-type Tab = "pipeline" | "accounts" | "contacts" | "activities";
+function healthBadge(score: number | null) {
+  if (score == null) return "";
+  if (score >= 70) return "bg-emerald/10 border-emerald/30 text-emerald";
+  if (score >= 40) return "bg-amber/10 border-amber/30 text-amber";
+  return "bg-rose/10 border-rose/30 text-rose";
+}
 
-// ── Pipeline Kanban ──────────────────────────────────────────────────────────
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins  = Math.floor(diff / 60_000);
+  const hours = Math.floor(diff / 3_600_000);
+  const days  = Math.floor(diff / 86_400_000);
+  if (mins < 60)  return `${mins}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7)   return `${days}d ago`;
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+type SortDir = "asc" | "desc";
+type Tab = "pipeline" | "companies" | "contacts" | "activities";
+
+// ── Sort column header ────────────────────────────────────────────────────────
+
+function SortTh({ label, sortKey, sort, onSort, className }: {
+  label: string;
+  sortKey: string;
+  sort: { key: string; dir: SortDir };
+  onSort: (k: string) => void;
+  className?: string;
+}) {
+  const active = sort.key === sortKey;
+  return (
+    <th
+      onClick={() => onSort(sortKey)}
+      className={cn(
+        "px-4 py-2.5 text-left text-xs font-semibold text-text-3 uppercase tracking-wider cursor-pointer hover:text-text-1 select-none whitespace-nowrap",
+        className,
+      )}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {active
+          ? sort.dir === "asc"
+            ? <ChevronUp className="w-3 h-3 text-violet" />
+            : <ChevronDown className="w-3 h-3 text-violet" />
+          : <ChevronUp className="w-3 h-3 opacity-20" />}
+      </span>
+    </th>
+  );
+}
+
+// ── Filter chip / select shared styles ───────────────────────────────────────
+
+const selectCls = "bg-white/5 border border-border rounded-xl px-3 py-2 text-xs text-text-2 focus:outline-none focus:border-violet/50 cursor-pointer";
+
+function filterChip(active: boolean) {
+  return cn(
+    "px-3 py-1.5 text-xs rounded-xl border transition-colors cursor-pointer select-none",
+    active
+      ? "bg-violet/20 border-violet/40 text-violet"
+      : "bg-white/5 border-border text-text-3 hover:text-text-2 hover:border-white/20",
+  );
+}
+
+// ── Pipeline Kanban ───────────────────────────────────────────────────────────
 
 function PipelineKanban({
   stages, opportunities, onMoveStage,
@@ -82,7 +144,6 @@ function PipelineKanban({
                       </span>
                     </div>
                   )}
-                  {/* quick-move stage buttons */}
                   <div className="flex gap-1 mt-2 flex-wrap">
                     {stages.filter((s) => s.id !== stage.id && !s.is_lost).map((s) => (
                       <button
@@ -106,10 +167,9 @@ function PipelineKanban({
         );
       })}
 
-      {/* Won / Lost summary columns */}
       {[
-        { label: "Won", filter: (o: Opportunity) => !!o.won_at, color: "text-emerald", icon: CheckCircle2 },
-        { label: "Lost", filter: (o: Opportunity) => !!o.lost_at, color: "text-rose", icon: AlertCircle },
+        { label: "Won",  filter: (o: Opportunity) => !!o.won_at,  color: "text-emerald", icon: CheckCircle2 },
+        { label: "Lost", filter: (o: Opportunity) => !!o.lost_at, color: "text-rose",    icon: AlertCircle },
       ].map(({ label, filter, color, icon: Icon }) => {
         const cards = opportunities.filter(filter);
         return (
@@ -173,7 +233,7 @@ function NewOppModal({
             value={form.account_id ?? ""}
             onChange={(e) => set("account_id", e.target.value || undefined)}
           >
-            <option value="">Select account…</option>
+            <option value="">Select company…</option>
             {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
           <select
@@ -228,20 +288,21 @@ function NewOppModal({
   );
 }
 
-// ── Accounts Tab ──────────────────────────────────────────────────────────────
+// ── Companies Tab ─────────────────────────────────────────────────────────────
 
-function AccountsTab({ accounts, contacts, opportunities }: {
+function CompaniesTab({ accounts, contacts, opportunities }: {
   accounts: Account[];
   contacts: Contact[];
   opportunities: Opportunity[];
 }) {
   const [search, setSearch] = useState("");
-  const filtered = accounts.filter((a) =>
-    a.name.toLowerCase().includes(search.toLowerCase()) ||
-    (a.domain ?? "").toLowerCase().includes(search.toLowerCase())
-  );
+  const [industryFilter, setIndustryFilter] = useState("all");
+  const [healthFilter, setHealthFilter] = useState("all");
+  const [dealsOnly, setDealsOnly] = useState(false);
+  const [sort, setSort] = useState<{ key: string; dir: SortDir }>({ key: "name", dir: "asc" });
+  const [selected, setSelected] = useState<Account | null>(null);
 
-  const contactsBy  = useMemo(() => {
+  const contactsBy = useMemo(() => {
     const m = new Map<string, number>();
     for (const c of contacts) if (c.account_id) m.set(c.account_id, (m.get(c.account_id) ?? 0) + 1);
     return m;
@@ -249,226 +310,541 @@ function AccountsTab({ accounts, contacts, opportunities }: {
 
   const openOppBy = useMemo(() => {
     const m = new Map<string, number>();
-    for (const o of opportunities) {
+    for (const o of opportunities)
       if (!o.won_at && !o.lost_at && o.account_id)
         m.set(o.account_id, (m.get(o.account_id) ?? 0) + 1);
-    }
     return m;
   }, [opportunities]);
 
   const openARRBy = useMemo(() => {
     const m = new Map<string, number>();
-    for (const o of opportunities) {
+    for (const o of opportunities)
       if (!o.won_at && !o.lost_at && o.account_id)
         m.set(o.account_id, (m.get(o.account_id) ?? 0) + (o.arr ?? 0));
-    }
     return m;
   }, [opportunities]);
 
+  const industries = useMemo(
+    () => [...new Set(accounts.map((a) => a.industry).filter(Boolean) as string[])].sort(),
+    [accounts],
+  );
+
+  const rows = useMemo(() => {
+    const list = accounts.filter((a) => {
+      const q = search.toLowerCase();
+      if (q && !a.name.toLowerCase().includes(q) && !(a.domain ?? "").toLowerCase().includes(q)) return false;
+      if (industryFilter !== "all" && a.industry !== industryFilter) return false;
+      if (healthFilter !== "all") {
+        const h = a.health_score;
+        if (healthFilter === "strong" && (h == null || h < 70)) return false;
+        if (healthFilter === "ok"     && (h == null || h < 40 || h >= 70)) return false;
+        if (healthFilter === "risk"   && (h == null || h >= 40)) return false;
+      }
+      if (dealsOnly && (openOppBy.get(a.id) ?? 0) === 0) return false;
+      return true;
+    });
+
+    return [...list].sort((a, b) => {
+      let av: string | number = 0;
+      let bv: string | number = 0;
+      switch (sort.key) {
+        case "name":      av = a.name;                     bv = b.name;                     break;
+        case "industry":  av = a.industry ?? "";            bv = b.industry ?? "";            break;
+        case "employees": av = a.employee_count ?? -1;     bv = b.employee_count ?? -1;     break;
+        case "openARR":   av = openARRBy.get(a.id) ?? 0;  bv = openARRBy.get(b.id) ?? 0;  break;
+        case "deals":     av = openOppBy.get(a.id) ?? 0;  bv = openOppBy.get(b.id) ?? 0;  break;
+        case "health":    av = a.health_score ?? -1;       bv = b.health_score ?? -1;       break;
+        case "contacts":  av = contactsBy.get(a.id) ?? 0; bv = contactsBy.get(b.id) ?? 0; break;
+      }
+      const cmp = typeof av === "string" ? (av as string).localeCompare(bv as string) : (av as number) - (bv as number);
+      return sort.dir === "asc" ? cmp : -cmp;
+    });
+  }, [accounts, search, industryFilter, healthFilter, dealsOnly, sort, contactsBy, openOppBy, openARRBy]);
+
+  const toggleSort = (key: string) =>
+    setSort((s) => ({ key, dir: s.key === key && s.dir === "asc" ? "desc" : "asc" }));
+
+  const panelContacts = useMemo(
+    () => selected ? contacts.filter((c) => c.account_id === selected.id) : [],
+    [selected, contacts],
+  );
+  const panelDeals = useMemo(
+    () => selected ? opportunities.filter((o) => o.account_id === selected.id && !o.won_at && !o.lost_at) : [],
+    [selected, opportunities],
+  );
+
   return (
-    <div className="space-y-4">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-3" />
-        <input
-          className="w-full pl-9 pr-4 py-2 bg-white/5 border border-border rounded-xl text-sm text-text-1 placeholder:text-text-3 focus:outline-none focus:border-violet/50"
-          placeholder="Search accounts…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+    <div className="flex gap-4 items-start">
+      {/* Table */}
+      <div className="flex-1 min-w-0 space-y-3">
+        {/* Toolbar */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative flex-1 min-w-44">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-3" />
+            <input
+              className="w-full pl-9 pr-4 py-2 bg-white/5 border border-border rounded-xl text-sm text-text-1 placeholder:text-text-3 focus:outline-none focus:border-violet/50"
+              placeholder="Search companies…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          {industries.length > 0 && (
+            <select className={selectCls} value={industryFilter} onChange={(e) => setIndustryFilter(e.target.value)}>
+              <option value="all">All Industries</option>
+              {industries.map((i) => <option key={i} value={i}>{i}</option>)}
+            </select>
+          )}
+          <select className={selectCls} value={healthFilter} onChange={(e) => setHealthFilter(e.target.value)}>
+            <option value="all">All Health</option>
+            <option value="strong">Strong (70+)</option>
+            <option value="ok">At-Risk (40–69)</option>
+            <option value="risk">Critical (&lt;40)</option>
+          </select>
+          <button onClick={() => setDealsOnly((v) => !v)} className={filterChip(dealsOnly)}>
+            Has Open Deals
+          </button>
+        </div>
+
+        {/* Table */}
+        <div className="glass rounded-2xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-white/[0.03] border-b border-border">
+              <tr>
+                <SortTh label="Company"   sortKey="name"      sort={sort} onSort={toggleSort} className="pl-4" />
+                <SortTh label="Industry"  sortKey="industry"  sort={sort} onSort={toggleSort} />
+                <SortTh label="Employees" sortKey="employees" sort={sort} onSort={toggleSort} />
+                <SortTh label="Open ARR"  sortKey="openARR"   sort={sort} onSort={toggleSort} />
+                <SortTh label="Deals"     sortKey="deals"     sort={sort} onSort={toggleSort} />
+                <SortTh label="Health"    sortKey="health"    sort={sort} onSort={toggleSort} />
+                <SortTh label="Contacts"  sortKey="contacts"  sort={sort} onSort={toggleSort} />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/40">
+              {rows.map((account) => {
+                const isSel = selected?.id === account.id;
+                return (
+                  <tr
+                    key={account.id}
+                    onClick={() => setSelected(isSel ? null : account)}
+                    className={cn(
+                      "cursor-pointer transition-colors hover:bg-white/[0.03]",
+                      isSel && "bg-violet/[0.06]",
+                    )}
+                  >
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-7 h-7 rounded-lg bg-violet/10 flex items-center justify-center shrink-0">
+                          <Building2 className="w-3.5 h-3.5 text-violet" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-text-1">{account.name}</p>
+                          {account.domain && <p className="text-xs text-text-3">{account.domain}</p>}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-text-3">{account.industry ?? "—"}</td>
+                    <td className="px-4 py-3 text-sm text-text-2">{fmt(account.employee_count)}</td>
+                    <td className="px-4 py-3 text-sm font-medium text-violet">{fmt(openARRBy.get(account.id) ?? 0, "$")}</td>
+                    <td className="px-4 py-3 text-sm text-text-2">{openOppBy.get(account.id) ?? 0}</td>
+                    <td className="px-4 py-3">
+                      {account.health_score != null
+                        ? <span className={cn("text-sm font-bold", healthColor(account.health_score))}>{account.health_score}</span>
+                        : <span className="text-text-3 text-sm">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-text-2">{contactsBy.get(account.id) ?? 0}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {rows.length === 0 && (
+            <p className="text-center py-12 text-sm text-text-3">No companies match your filters.</p>
+          )}
+        </div>
       </div>
-      <div className="space-y-2">
-        {filtered.map((account) => {
-          const numContacts = contactsBy.get(account.id) ?? 0;
-          const numOpps     = openOppBy.get(account.id) ?? 0;
-          const openARR     = openARRBy.get(account.id) ?? 0;
-          return (
-            <div key={account.id} className="glass rounded-xl p-4 flex items-center gap-4">
-              <div className="w-10 h-10 rounded-xl bg-violet/10 flex items-center justify-center shrink-0">
-                <Building2 className="w-5 h-5 text-violet" />
+
+      {/* Detail panel */}
+      <AnimatePresence>
+        {selected && (
+          <motion.div
+            key="co-panel"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            transition={{ duration: 0.18 }}
+            className="w-72 shrink-0 glass rounded-2xl overflow-hidden"
+          >
+            <div className="p-4 border-b border-border/50 flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-violet/10 flex items-center justify-center shrink-0">
+                <Building2 className="w-4 h-4 text-violet" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-text-1">{account.name}</p>
-                <div className="flex items-center gap-3 mt-0.5">
-                  {account.domain && <span className="text-xs text-text-3">{account.domain}</span>}
-                  {account.industry && <span className="text-xs text-text-3">{account.industry}</span>}
-                </div>
+                <p className="font-semibold text-text-1 truncate">{selected.name}</p>
+                {selected.domain && <p className="text-xs text-text-3">{selected.domain}</p>}
               </div>
-              <div className="flex items-center gap-6 shrink-0">
-                <div className="text-right">
-                  <p className="text-xs text-text-3">Contacts</p>
-                  <p className="text-sm font-medium text-text-1">{numContacts}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs text-text-3">Open Deals</p>
-                  <p className="text-sm font-medium text-text-1">{numOpps}</p>
-                </div>
-                {openARR > 0 && (
-                  <div className="text-right">
-                    <p className="text-xs text-text-3">Open ARR</p>
-                    <p className="text-sm font-medium text-violet">{fmt(openARR, "$")}</p>
-                  </div>
-                )}
-                {account.employee_count != null && (
-                  <div className="text-right">
-                    <p className="text-xs text-text-3">Employees</p>
-                    <p className="text-sm font-medium text-text-1">{fmt(account.employee_count)}</p>
-                  </div>
-                )}
-                {account.health_score != null && (
-                  <div className="text-right">
-                    <p className="text-xs text-text-3">Health</p>
-                    <p className={cn("text-sm font-bold", healthColor(account.health_score))}>
-                      {account.health_score}
-                    </p>
-                  </div>
-                )}
-              </div>
+              <button onClick={() => setSelected(null)} className="text-text-3 hover:text-text-1 transition-colors mt-0.5 shrink-0">
+                <X className="w-4 h-4" />
+              </button>
             </div>
-          );
-        })}
-        {filtered.length === 0 && (
-          <div className="text-center py-12 text-sm text-text-3">
-            No accounts yet. Add your first account to get started.
-          </div>
+
+            <div className="p-4 space-y-4 overflow-y-auto max-h-[62vh]">
+              <div className="flex flex-wrap gap-1.5">
+                {selected.industry && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-white/5 border border-border text-text-3">{selected.industry}</span>
+                )}
+                {selected.employee_count != null && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-white/5 border border-border text-text-3">{fmt(selected.employee_count)} employees</span>
+                )}
+                {selected.health_score != null && (
+                  <span className={cn("text-xs px-2 py-0.5 rounded-full border", healthBadge(selected.health_score))}>
+                    Health {selected.health_score}
+                  </span>
+                )}
+              </div>
+
+              {panelContacts.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-text-3 uppercase tracking-wider mb-2">Contacts · {panelContacts.length}</p>
+                  <div className="space-y-1.5">
+                    {panelContacts.map((c) => (
+                      <div key={c.id} className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-cyan/10 flex items-center justify-center text-xs font-bold text-cyan shrink-0">
+                          {(c.first_name[0] ?? "").toUpperCase()}{(c.last_name[0] ?? "").toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-text-1 truncate">{c.first_name} {c.last_name}</p>
+                          {c.title && <p className="text-xs text-text-3 truncate">{c.title}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {panelDeals.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-text-3 uppercase tracking-wider mb-2">Open Deals · {panelDeals.length}</p>
+                  <div className="space-y-1.5">
+                    {panelDeals.map((o) => (
+                      <div key={o.id} className="bg-white/[0.03] border border-border/50 rounded-lg p-2.5">
+                        <p className="text-xs font-medium text-text-1 truncate">{o.name}</p>
+                        {o.arr != null && o.arr > 0 && <p className="text-xs font-semibold text-violet">{fmt(o.arr, "$")}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {panelContacts.length === 0 && panelDeals.length === 0 && (
+                <p className="text-xs text-text-3 text-center py-4">No contacts or deals yet.</p>
+              )}
+            </div>
+          </motion.div>
         )}
-      </div>
+      </AnimatePresence>
     </div>
   );
 }
 
-// ── Contacts Tab ─────────────────────────────────────────────────────────────
+// ── Contacts Tab ──────────────────────────────────────────────────────────────
 
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins  = Math.floor(diff / 60_000);
-  const hours = Math.floor(diff / 3_600_000);
-  const days  = Math.floor(diff / 86_400_000);
-  if (mins < 60)  return `${mins}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  if (days < 7)   return `${days}d ago`;
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-function ContactsTab({ contacts }: { contacts: Contact[] }) {
+function ContactsTab({ contacts, accounts }: { contacts: Contact[]; accounts: Account[] }) {
   const { data: activities = [] } = useSWR("crm-activities", () => api.crm.activities.list());
   const [search, setSearch] = useState("");
+  const [companyFilter, setCompanyFilter] = useState("all");
+  const [seniorityFilter, setSeniorityFilter] = useState("all");
+  const [recencyFilter, setRecencyFilter] = useState("all");
+  const [sort, setSort] = useState<{ key: string; dir: SortDir }>({ key: "lastContact", dir: "desc" });
+  const [selected, setSelected] = useState<Contact | null>(null);
 
-  // Per-contact: last activity sorted by occurred_at desc
   const contactActivity = useMemo(() => {
-    const map = new Map<string, Activity[]>();
+    const map = new Map<string, ActivityType[]>();
     for (const a of activities) {
       if (!a.contact_id) continue;
       const list = map.get(a.contact_id) ?? [];
       list.push(a);
       map.set(a.contact_id, list);
     }
-    // sort each contact's activities newest-first
     for (const [id, list] of map)
       map.set(id, list.sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime()));
     return map;
   }, [activities]);
 
-  const filtered = contacts.filter((c) =>
-    `${c.first_name} ${c.last_name}`.toLowerCase().includes(search.toLowerCase()) ||
-    (c.email ?? "").toLowerCase().includes(search.toLowerCase())
-  ).sort((a, b) => {
-    // sort by most recent activity, contacts with no activity last
-    const aDate = contactActivity.get(a.id)?.[0]?.occurred_at ?? "";
-    const bDate = contactActivity.get(b.id)?.[0]?.occurred_at ?? "";
-    return bDate.localeCompare(aDate);
-  });
+  const accountMap = useMemo(() => {
+    const m = new Map<string, Account>();
+    for (const a of accounts) m.set(a.id, a);
+    return m;
+  }, [accounts]);
 
-  const typeLabel: Record<string, string> = { email: "Email", call: "Call", meeting: "Meeting", note: "Note", message: "Message" };
+  const seniorities = useMemo(
+    () => [...new Set(contacts.map((c) => c.seniority).filter(Boolean) as string[])].sort(),
+    [contacts],
+  );
+
+  const accountsWithContacts = useMemo(() => {
+    const ids = new Set(contacts.map((c) => c.account_id).filter(Boolean));
+    return accounts.filter((a) => ids.has(a.id));
+  }, [contacts, accounts]);
+
+  const rows = useMemo(() => {
+    const now = Date.now();
+    const WEEK  = 7  * 86_400_000;
+    const MONTH = 30 * 86_400_000;
+
+    const list = contacts.filter((c) => {
+      const q = search.toLowerCase();
+      if (q && !`${c.first_name} ${c.last_name}`.toLowerCase().includes(q) && !(c.email ?? "").toLowerCase().includes(q)) return false;
+      if (companyFilter !== "all" && c.account_id !== companyFilter) return false;
+      if (seniorityFilter !== "all" && c.seniority !== seniorityFilter) return false;
+      if (recencyFilter !== "all") {
+        const last = contactActivity.get(c.id)?.[0]?.occurred_at;
+        const ago = last ? now - new Date(last).getTime() : Infinity;
+        if (recencyFilter === "week"    && ago > WEEK)  return false;
+        if (recencyFilter === "month"   && ago > MONTH) return false;
+        if (recencyFilter === "overdue" && ago <= MONTH) return false;
+      }
+      return true;
+    });
+
+    return [...list].sort((a, b) => {
+      let av: string | number = 0;
+      let bv: string | number = 0;
+      switch (sort.key) {
+        case "name":        av = `${a.first_name} ${a.last_name}`; bv = `${b.first_name} ${b.last_name}`; break;
+        case "company":     av = accountMap.get(a.account_id ?? "")?.name ?? ""; bv = accountMap.get(b.account_id ?? "")?.name ?? ""; break;
+        case "seniority":   av = a.seniority ?? ""; bv = b.seniority ?? ""; break;
+        case "lastContact": av = contactActivity.get(a.id)?.[0]?.occurred_at ?? ""; bv = contactActivity.get(b.id)?.[0]?.occurred_at ?? ""; break;
+        case "comms":       av = contactActivity.get(a.id)?.length ?? 0; bv = contactActivity.get(b.id)?.length ?? 0; break;
+      }
+      const cmp = typeof av === "string" ? (av as string).localeCompare(bv as string) : (av as number) - (bv as number);
+      return sort.dir === "asc" ? cmp : -cmp;
+    });
+  }, [contacts, search, companyFilter, seniorityFilter, recencyFilter, sort, contactActivity, accountMap]);
+
+  const toggleSort = (key: string) =>
+    setSort((s) => ({ key, dir: s.key === key && s.dir === "asc" ? "desc" : "asc" }));
+
+  const panelActs = useMemo(
+    () => selected ? (contactActivity.get(selected.id) ?? []).slice(0, 6) : [],
+    [selected, contactActivity],
+  );
+
+  const typeIcon: Record<string, React.ElementType> = {
+    email: Mail, call: Phone, meeting: Users, note: Activity, task: Target,
+  };
+  const typeColor: Record<string, string> = {
+    email:   "text-violet bg-violet/10",
+    call:    "text-cyan bg-cyan/10",
+    meeting: "text-amber bg-amber/10",
+    note:    "text-emerald bg-emerald/10",
+    task:    "text-rose bg-rose/10",
+  };
 
   return (
-    <div className="space-y-4">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-3" />
-        <input
-          className="w-full pl-9 pr-4 py-2 bg-white/5 border border-border rounded-xl text-sm text-text-1 placeholder:text-text-3 focus:outline-none focus:border-violet/50"
-          placeholder="Search contacts…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+    <div className="flex gap-4 items-start">
+      {/* Table */}
+      <div className="flex-1 min-w-0 space-y-3">
+        {/* Toolbar */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative flex-1 min-w-44">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-3" />
+            <input
+              className="w-full pl-9 pr-4 py-2 bg-white/5 border border-border rounded-xl text-sm text-text-1 placeholder:text-text-3 focus:outline-none focus:border-violet/50"
+              placeholder="Search contacts…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          {accountsWithContacts.length > 0 && (
+            <select className={selectCls} value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}>
+              <option value="all">All Companies</option>
+              {accountsWithContacts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          )}
+          {seniorities.length > 0 && (
+            <select className={selectCls} value={seniorityFilter} onChange={(e) => setSeniorityFilter(e.target.value)}>
+              <option value="all">All Seniority</option>
+              {seniorities.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          )}
+          <select className={selectCls} value={recencyFilter} onChange={(e) => setRecencyFilter(e.target.value)}>
+            <option value="all">Any recency</option>
+            <option value="week">This week</option>
+            <option value="month">This month</option>
+            <option value="overdue">Overdue (&gt;30 days)</option>
+          </select>
+        </div>
+
+        {/* Table */}
+        <div className="glass rounded-2xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-white/[0.03] border-b border-border">
+              <tr>
+                <SortTh label="Name"         sortKey="name"        sort={sort} onSort={toggleSort} className="pl-4" />
+                <SortTh label="Company"      sortKey="company"     sort={sort} onSort={toggleSort} />
+                <SortTh label="Seniority"    sortKey="seniority"   sort={sort} onSort={toggleSort} />
+                <SortTh label="Last Contact" sortKey="lastContact" sort={sort} onSort={toggleSort} />
+                <SortTh label="Comms"        sortKey="comms"       sort={sort} onSort={toggleSort} />
+                <th className="px-4 py-2.5 text-left text-xs font-semibold text-text-3 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/40">
+              {rows.map((c) => {
+                const acts     = contactActivity.get(c.id) ?? [];
+                const last     = acts[0] ?? null;
+                const initials = `${(c.first_name[0] ?? "").toUpperCase()}${(c.last_name[0] ?? "").toUpperCase()}`;
+                const company  = accountMap.get(c.account_id ?? "");
+                const isSel    = selected?.id === c.id;
+                return (
+                  <tr
+                    key={c.id}
+                    onClick={() => setSelected(isSel ? null : c)}
+                    className={cn(
+                      "cursor-pointer transition-colors hover:bg-white/[0.03]",
+                      isSel && "bg-violet/[0.06]",
+                    )}
+                  >
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-7 h-7 rounded-full bg-cyan/10 flex items-center justify-center text-xs font-bold text-cyan shrink-0">
+                          {initials}
+                        </div>
+                        <div>
+                          <p className="font-medium text-text-1">{c.first_name} {c.last_name}</p>
+                          {c.title && <p className="text-xs text-text-3">{c.title}</p>}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-text-3">{company?.name ?? "—"}</td>
+                    <td className="px-4 py-3">
+                      {c.seniority
+                        ? <span className="text-xs px-1.5 py-0.5 rounded-full bg-white/5 border border-border text-text-3">{c.seniority}</span>
+                        : <span className="text-text-3 text-xs">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-text-2">
+                      {last ? relativeTime(last.occurred_at) : <span className="text-text-3">Never</span>}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-text-2">{acts.length || "—"}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2.5">
+                        {c.email && (
+                          <a href={`mailto:${c.email}`} onClick={(e) => e.stopPropagation()} className="text-text-3 hover:text-violet transition-colors">
+                            <Mail className="w-3.5 h-3.5" />
+                          </a>
+                        )}
+                        {c.phone && (
+                          <a href={`tel:${c.phone}`} onClick={(e) => e.stopPropagation()} className="text-text-3 hover:text-violet transition-colors">
+                            <Phone className="w-3.5 h-3.5" />
+                          </a>
+                        )}
+                        {c.linkedin_url && (
+                          <a href={c.linkedin_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-text-3 hover:text-violet transition-colors">
+                            <Globe className="w-3.5 h-3.5" />
+                          </a>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {rows.length === 0 && (
+            <p className="text-center py-12 text-sm text-text-3">No contacts match your filters.</p>
+          )}
+        </div>
       </div>
-      <div className="space-y-2">
-        {filtered.map((c) => {
-          const acts     = contactActivity.get(c.id) ?? [];
-          const last     = acts[0] ?? null;
-          const total    = acts.length;
-          const initials = `${c.first_name[0] ?? ""}${c.last_name[0] ?? ""}`.toUpperCase();
-          return (
-            <div key={c.id} className="glass rounded-xl p-4 space-y-2">
-              {/* Top row */}
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-cyan/10 flex items-center justify-center shrink-0 text-sm font-bold text-cyan">
-                  {initials}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-semibold text-text-1">{c.first_name} {c.last_name}</p>
-                    {c.title && <span className="text-xs text-text-3">{c.title}</span>}
-                    {c.seniority && (
-                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-white/5 border border-border text-text-3">
-                        {c.seniority}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-text-3 mt-0.5">{c.email}</p>
-                </div>
-                {/* Right-side metrics */}
-                <div className="flex items-center gap-5 shrink-0">
-                  {last && (
-                    <div className="text-right">
-                      <p className="text-xs text-text-3">Last contact</p>
-                      <p className="text-xs font-medium text-text-2">{relativeTime(last.occurred_at)}</p>
-                    </div>
-                  )}
-                  {total > 0 && (
-                    <div className="text-right">
-                      <p className="text-xs text-text-3">Comms</p>
-                      <p className="text-xs font-medium text-text-2">{total}</p>
-                    </div>
-                  )}
-                  <div className="flex items-center gap-3">
-                    {c.email && (
-                      <a href={`mailto:${c.email}`} className="text-text-3 hover:text-violet transition-colors">
-                        <Mail className="w-4 h-4" />
-                      </a>
-                    )}
-                    {c.phone && (
-                      <a href={`tel:${c.phone}`} className="text-text-3 hover:text-violet transition-colors">
-                        <Phone className="w-4 h-4" />
-                      </a>
-                    )}
-                    {c.linkedin_url && (
-                      <a href={c.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-text-3 hover:text-violet transition-colors">
-                        <Globe className="w-4 h-4" />
-                      </a>
-                    )}
-                  </div>
-                </div>
+
+      {/* Detail panel */}
+      <AnimatePresence>
+        {selected && (
+          <motion.div
+            key="ct-panel"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            transition={{ duration: 0.18 }}
+            className="w-72 shrink-0 glass rounded-2xl overflow-hidden"
+          >
+            <div className="p-4 border-b border-border/50 flex items-start gap-3">
+              <div className="w-9 h-9 rounded-full bg-cyan/10 flex items-center justify-center text-sm font-bold text-cyan shrink-0">
+                {(selected.first_name[0] ?? "").toUpperCase()}{(selected.last_name[0] ?? "").toUpperCase()}
               </div>
-              {/* Last communication summary */}
-              {last?.ai_summary && (
-                <div className="flex items-start gap-2 pl-13 ml-13 border-t border-border/50 pt-2">
-                  <div className="w-10 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs text-text-3 mb-0.5">
-                      {typeLabel[last.type] ?? last.type} · {relativeTime(last.occurred_at)}
-                      {last.subject && <span className="text-text-2"> · {last.subject}</span>}
-                    </p>
-                    <p className="text-xs text-text-2 leading-relaxed line-clamp-2">{last.ai_summary}</p>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-text-1">{selected.first_name} {selected.last_name}</p>
+                {selected.title && <p className="text-xs text-text-3">{selected.title}</p>}
+              </div>
+              <button onClick={() => setSelected(null)} className="text-text-3 hover:text-text-1 transition-colors mt-0.5 shrink-0">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4 overflow-y-auto max-h-[62vh]">
+              {/* Quick actions */}
+              <div className="flex flex-wrap gap-1.5">
+                {selected.seniority && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-white/5 border border-border text-text-3">{selected.seniority}</span>
+                )}
+                {selected.email && (
+                  <a href={`mailto:${selected.email}`} className="text-xs px-2 py-0.5 rounded-full bg-violet/10 border border-violet/30 text-violet flex items-center gap-1 hover:bg-violet/20 transition-colors">
+                    <Mail className="w-3 h-3" /> Email
+                  </a>
+                )}
+                {selected.phone && (
+                  <a href={`tel:${selected.phone}`} className="text-xs px-2 py-0.5 rounded-full bg-cyan/10 border border-cyan/30 text-cyan flex items-center gap-1 hover:bg-cyan/20 transition-colors">
+                    <Phone className="w-3 h-3" /> Call
+                  </a>
+                )}
+                {selected.linkedin_url && (
+                  <a href={selected.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-xs px-2 py-0.5 rounded-full bg-white/5 border border-border text-text-3 flex items-center gap-1 hover:border-violet/30 transition-colors">
+                    <Globe className="w-3 h-3" /> LinkedIn
+                  </a>
+                )}
+              </div>
+
+              {/* Company */}
+              {selected.account_id && accountMap.get(selected.account_id) && (
+                <div>
+                  <p className="text-xs font-semibold text-text-3 uppercase tracking-wider mb-1.5">Company</p>
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-md bg-violet/10 flex items-center justify-center shrink-0">
+                      <Building2 className="w-3 h-3 text-violet" />
+                    </div>
+                    <p className="text-xs font-medium text-text-1">{accountMap.get(selected.account_id)?.name}</p>
                   </div>
                 </div>
               )}
+
+              {/* Recent activity */}
+              {panelActs.length > 0 ? (
+                <div>
+                  <p className="text-xs font-semibold text-text-3 uppercase tracking-wider mb-2">Recent Activity</p>
+                  <div className="space-y-2.5">
+                    {panelActs.map((a) => {
+                      const Icon  = typeIcon[a.type]  ?? Activity;
+                      const color = typeColor[a.type] ?? "text-text-3 bg-white/5";
+                      return (
+                        <div key={a.id} className="flex items-start gap-2">
+                          <div className={cn("w-6 h-6 rounded-md flex items-center justify-center shrink-0 mt-0.5", color)}>
+                            <Icon className="w-3 h-3" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium text-text-1 truncate">{a.subject ?? a.type}</p>
+                            <p className="text-xs text-text-3">{relativeTime(a.occurred_at)}</p>
+                            {a.ai_summary && <p className="text-xs text-text-2 mt-0.5 line-clamp-2">{a.ai_summary}</p>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-text-3 text-center py-4">No activity recorded yet.</p>
+              )}
             </div>
-          );
-        })}
-        {filtered.length === 0 && (
-          <div className="text-center py-12 text-sm text-text-3">No contacts yet.</div>
+          </motion.div>
         )}
-      </div>
+      </AnimatePresence>
     </div>
   );
 }
@@ -481,17 +857,17 @@ function ActivitiesTab() {
     email: Mail, call: Phone, meeting: Users, note: Activity, task: Target,
   };
   const typeColor: Record<string, string> = {
-    email: "text-violet bg-violet/10",
-    call: "text-cyan bg-cyan/10",
+    email:   "text-violet bg-violet/10",
+    call:    "text-cyan bg-cyan/10",
     meeting: "text-amber bg-amber/10",
-    note: "text-emerald bg-emerald/10",
-    task: "text-rose bg-rose/10",
+    note:    "text-emerald bg-emerald/10",
+    task:    "text-rose bg-rose/10",
   };
 
   return (
     <div className="space-y-2">
       {activities.map((a) => {
-        const Icon = typeIcon[a.type] ?? Activity;
+        const Icon  = typeIcon[a.type]  ?? Activity;
         const color = typeColor[a.type] ?? "text-text-3 bg-white/5";
         return (
           <div key={a.id} className="glass rounded-xl p-4 flex items-start gap-3">
@@ -526,21 +902,20 @@ export default function CrmPage() {
   const [tab, setTab] = useState<Tab>("pipeline");
   const [showNewOpp, setShowNewOpp] = useState(false);
 
-  const { data: stages = [], mutate: mutateStages } = useSWR("crm-stages", () => api.crm.stages.list());
-  const { data: opportunities = [], mutate: mutateOpps } = useSWR("crm-opps", () => api.crm.opportunities.list());
-  const { data: accounts = [] } = useSWR("crm-accounts", () => api.crm.accounts.list(), { refreshInterval: 30_000 });
-  const { data: contacts = [] } = useSWR("crm-contacts", () => api.crm.contacts.list(), { refreshInterval: 30_000 });
+  const { data: stages = [],       mutate: mutateStages } = useSWR("crm-stages",   () => api.crm.stages.list());
+  const { data: opportunities = [], mutate: mutateOpps  } = useSWR("crm-opps",     () => api.crm.opportunities.list());
+  const { data: accounts = []  }                          = useSWR("crm-accounts", () => api.crm.accounts.list(), { refreshInterval: 30_000 });
+  const { data: contacts = []  }                          = useSWR("crm-contacts", () => api.crm.contacts.list(), { refreshInterval: 30_000 });
 
-  // Seed default stages if none exist
   const seedStages = async () => {
     const defaults = [
-      { name: "Prospecting", order: 0, probability: 10 },
-      { name: "Qualification", order: 1, probability: 20 },
-      { name: "Discovery", order: 2, probability: 30 },
-      { name: "Proposal", order: 3, probability: 60 },
-      { name: "Negotiation", order: 4, probability: 80 },
-      { name: "Closed Won", order: 5, probability: 100, is_won: true },
-      { name: "Closed Lost", order: 6, probability: 0, is_lost: true },
+      { name: "Prospecting",  order: 0, probability: 10 },
+      { name: "Qualification",order: 1, probability: 20 },
+      { name: "Discovery",    order: 2, probability: 30 },
+      { name: "Proposal",     order: 3, probability: 60 },
+      { name: "Negotiation",  order: 4, probability: 80 },
+      { name: "Closed Won",   order: 5, probability: 100, is_won: true },
+      { name: "Closed Lost",  order: 6, probability: 0,   is_lost: true },
     ];
     for (const s of defaults) await api.crm.stages.create(s);
     mutateStages();
@@ -556,16 +931,15 @@ export default function CrmPage() {
     mutateOpps();
   };
 
-  // Summary stats
-  const openARR = opportunities.filter((o) => !o.won_at && !o.lost_at).reduce((s, o) => s + (o.arr ?? 0), 0);
-  const wonARR = opportunities.filter((o) => !!o.won_at).reduce((s, o) => s + (o.arr ?? 0), 0);
+  const openARR   = opportunities.filter((o) => !o.won_at && !o.lost_at).reduce((s, o) => s + (o.arr ?? 0), 0);
+  const wonARR    = opportunities.filter((o) => !!o.won_at).reduce((s, o) => s + (o.arr ?? 0), 0);
   const openCount = opportunities.filter((o) => !o.won_at && !o.lost_at).length;
 
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
-    { id: "pipeline", label: "Pipeline", icon: TrendingUp },
-    { id: "accounts", label: "Accounts", icon: Building2 },
-    { id: "contacts", label: "Contacts", icon: Users },
-    { id: "activities", label: "Activities", icon: Activity },
+    { id: "pipeline",   label: "Pipeline",   icon: TrendingUp },
+    { id: "companies",  label: "Companies",  icon: Building2  },
+    { id: "contacts",   label: "Contacts",   icon: Users      },
+    { id: "activities", label: "Activities", icon: Activity   },
   ];
 
   return (
@@ -579,7 +953,7 @@ export default function CrmPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold text-text-1">CRM</h1>
-              <p className="text-sm text-text-3 mt-0.5">Pipeline, accounts, contacts, and activities</p>
+              <p className="text-sm text-text-3 mt-0.5">Pipeline, companies, contacts, and activities</p>
             </div>
             <div className="flex items-center gap-2">
               {stages.length === 0 && (
@@ -603,10 +977,10 @@ export default function CrmPage() {
           {/* Stats */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { label: "Open Pipeline", value: fmt(openARR, "$"), sub: `${openCount} deals`, icon: TrendingUp, color: "bg-violet/10 text-violet" },
-              { label: "Closed Won", value: fmt(wonARR, "$"), sub: "this period", icon: CheckCircle2, color: "bg-emerald/10 text-emerald" },
-              { label: "Accounts", value: accounts.length, sub: "total", icon: Building2, color: "bg-cyan/10 text-cyan" },
-              { label: "Contacts", value: contacts.length, sub: "total", icon: Users, color: "bg-amber/10 text-amber" },
+              { label: "Open Pipeline", value: fmt(openARR, "$"), sub: `${openCount} deals`, icon: TrendingUp,   color: "bg-violet/10 text-violet"  },
+              { label: "Closed Won",    value: fmt(wonARR, "$"),  sub: "this period",        icon: CheckCircle2, color: "bg-emerald/10 text-emerald" },
+              { label: "Companies",     value: accounts.length,   sub: "total",              icon: Building2,    color: "bg-cyan/10 text-cyan"       },
+              { label: "Contacts",      value: contacts.length,   sub: "total",              icon: Users,        color: "bg-amber/10 text-amber"     },
             ].map((s) => (
               <div key={s.label} className="glass rounded-2xl p-5 flex items-start gap-4">
                 <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center shrink-0", s.color)}>
@@ -631,7 +1005,7 @@ export default function CrmPage() {
                   "flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
                   tab === t.id
                     ? "border-violet text-violet"
-                    : "border-transparent text-text-3 hover:text-text-2"
+                    : "border-transparent text-text-3 hover:text-text-2",
                 )}
               >
                 <t.icon className="w-4 h-4" />
@@ -649,18 +1023,13 @@ export default function CrmPage() {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
             >
-              {tab === "pipeline" && (
-                <PipelineKanban
-                  stages={stages}
-                  opportunities={opportunities}
-                  onMoveStage={handleMoveStage}
-                />
-              )}
-              {tab === "accounts" && <AccountsTab accounts={accounts} contacts={contacts} opportunities={opportunities} />}
-              {tab === "contacts" && <ContactsTab contacts={contacts} />}
+              {tab === "pipeline"   && <PipelineKanban stages={stages} opportunities={opportunities} onMoveStage={handleMoveStage} />}
+              {tab === "companies"  && <CompaniesTab accounts={accounts} contacts={contacts} opportunities={opportunities} />}
+              {tab === "contacts"   && <ContactsTab contacts={contacts} accounts={accounts} />}
               {tab === "activities" && <ActivitiesTab />}
             </motion.div>
           </AnimatePresence>
+
         </div>
       </div>
 
