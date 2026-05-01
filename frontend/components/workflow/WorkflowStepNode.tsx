@@ -15,6 +15,7 @@ export type WorkflowStepData = {
   swarmId: string;
   colorIndex: number;
   inputType: InputType;
+  systemPrompt?: string;
 };
 
 const inputCfg: Record<InputType, { icon: React.ElementType; label: string; color: string }> = {

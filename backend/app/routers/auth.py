@@ -29,6 +29,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 _ORG_MEMBER_ROLE_ID = UUID("00000000-0000-0000-0000-000000000003")
 
 
+_TN_EDITOR_ROLE_ID = UUID("00000000-0000-0000-0000-000000000005")
+
+
 async def _domain_auto_join(db: AsyncSession, user: User) -> bool:
     """If the user's email domain matches a registered OrgEmailDomain, add them as a member.
 
@@ -56,12 +59,27 @@ async def _domain_auto_join(db: AsyncSession, user: User) -> bool:
         user_id=user.id,
         role_id=_ORG_MEMBER_ROLE_ID,
     ))
+
+    # Add to the org's default tenant so the user has immediate access
+    tenant_result = await db.execute(
+        select(OrgTenant).where(OrgTenant.org_id == domain_record.org_id).limit(1)
+    )
+    tenant = tenant_result.scalar_one_or_none()
+    if tenant:
+        db.add(TenantMembership(
+            tenant_id=tenant.id,
+            user_id=user.id,
+            role_id=_TN_EDITOR_ROLE_ID,
+        ))
+
+    # Skip the setup wizard — this user is joining an existing org, not creating one
+    user.onboarding_completed = True
+
     logger.info("domain_auto_join: added %s to org %s", user.email, domain_record.org_id)
     return True
 
 _APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:3000")
-# Public URL of the backend API as seen from the user's browser (for email links)
-_API_PUBLIC_URL = os.getenv("API_PUBLIC_URL", "http://localhost:8000")
+_API_PUBLIC_URL = os.getenv("API_PUBLIC_URL", "http://localhost:3000")
 _COOKIE_SECURE = os.getenv("ENV", "development") == "production"
 _COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN", None)
 _PREFLIGHT_MINUTES = 15

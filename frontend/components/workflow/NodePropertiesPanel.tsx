@@ -1,6 +1,7 @@
 "use client";
 
-import { Bot } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Bot, X, Save, AlertTriangle } from "lucide-react";
 
 import type { Node, Edge } from "@xyflow/react";
 import type { TriggerNodeData, TriggerType } from "./TriggerNode";
@@ -39,43 +40,125 @@ function InfoBox({ children }: { children: React.ReactNode }) {
   );
 }
 
-// ── Panel wrapper ─────────────────────────────────────────────────────────────
+// ── Modal Panel wrapper ───────────────────────────────────────────────────────
 
 interface PanelProps {
   title: string;
-  onClose: () => void;
+  isDirty: boolean;
+  onRequestClose: () => void;
+  onSave: () => void;
   onRemove?: () => void;
   removeLabel?: string;
+  showConfirm: boolean;
+  onConfirmDiscard: () => void;
+  onCancelConfirm: () => void;
   children: React.ReactNode;
 }
 
-function Panel({ title, onClose, onRemove, removeLabel = "Remove", children }: PanelProps) {
+function Panel({
+  title,
+  isDirty,
+  onRequestClose,
+  onSave,
+  onRemove,
+  removeLabel = "Remove",
+  showConfirm,
+  onConfirmDiscard,
+  onCancelConfirm,
+  children,
+}: PanelProps) {
   return (
-    <div className="w-72 shrink-0 flex flex-col glass border-l border-border h-full">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-        <span className="text-sm font-semibold text-text-1">{title}</span>
-        <button
-          onClick={onClose}
-          className="text-text-3 hover:text-text-2 text-xl leading-none transition-colors"
-        >
-          ×
-        </button>
-      </div>
-
-      <div className="flex flex-col gap-5 p-4 flex-1 overflow-y-auto">
-        {children}
-      </div>
-
-      {onRemove && (
-        <div className="p-4 border-t border-border shrink-0">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      onClick={(e) => { if (e.target === e.currentTarget) onRequestClose(); }}
+    >
+      <div
+        className="relative w-[760px] max-h-[88vh] flex flex-col glass border border-border rounded-2xl shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+          <span className="text-base font-semibold text-text-1">{title}</span>
           <button
-            onClick={onRemove}
-            className="w-full py-2 rounded-xl border border-rose/25 bg-rose/5 hover:bg-rose/12 text-rose text-sm transition-colors"
+            onClick={onRequestClose}
+            className="w-7 h-7 flex items-center justify-center rounded-lg text-text-3 hover:text-text-1 hover:bg-surface-2 transition-colors"
           >
-            {removeLabel}
+            <X className="w-4 h-4" />
           </button>
         </div>
-      )}
+
+        {/* Body */}
+        <div className="flex flex-col gap-5 px-6 py-5 flex-1 overflow-y-auto">
+          {children}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-6 py-4 border-t border-border shrink-0">
+          <div>
+            {onRemove && (
+              <button
+                onClick={onRemove}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose/25 bg-rose/5 hover:bg-rose/12 text-rose text-sm transition-colors"
+              >
+                {removeLabel}
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onRequestClose}
+              className="px-4 py-1.5 rounded-xl text-sm text-text-2 hover:text-text-1 hover:bg-surface-2 border border-border transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onSave}
+              disabled={!isDirty}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-sm font-medium bg-violet hover:bg-violet/90 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Save className="w-3.5 h-3.5" />
+              Save Changes
+            </button>
+          </div>
+        </div>
+
+        {/* Unsaved-changes confirm overlay */}
+        {showConfirm && (
+          <div className="absolute inset-0 flex items-center justify-center bg-surface-1/75 backdrop-blur-sm rounded-2xl z-10">
+            <div className="w-80 flex flex-col gap-4 glass border border-border rounded-2xl p-6 shadow-xl">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber/10 border border-amber/20 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-4 h-4 text-amber" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-text-1">Unsaved changes</p>
+                  <p className="text-xs text-text-3 mt-0.5">What would you like to do?</p>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={onSave}
+                  className="w-full py-2 rounded-xl bg-violet hover:bg-violet/90 text-white text-sm font-medium transition-colors"
+                >
+                  Save changes
+                </button>
+                <button
+                  onClick={onConfirmDiscard}
+                  className="w-full py-2 rounded-xl border border-rose/25 bg-rose/5 hover:bg-rose/12 text-rose text-sm transition-colors"
+                >
+                  Discard changes
+                </button>
+                <button
+                  onClick={onCancelConfirm}
+                  className="w-full py-2 rounded-xl text-sm text-text-2 hover:text-text-1 hover:bg-surface-2 transition-colors"
+                >
+                  Keep editing
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -103,14 +186,58 @@ export function NodePropertiesPanel({
   onRemoveEdge,
   onClose,
 }: NodePropertiesPanelProps) {
+  const itemId = node?.id ?? edge?.id;
+
+  const [draft, setDraft] = useState<Record<string, unknown>>({});
+  const [isDirty, setIsDirty] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  // Reset draft whenever the selected item changes
+  useEffect(() => {
+    setDraft(((node?.data ?? edge?.data) as Record<string, unknown>) ?? {});
+    setIsDirty(false);
+    setShowConfirm(false);
+  }, [itemId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const update = (partial: Record<string, unknown>) => {
+    setDraft((prev) => ({ ...prev, ...partial }));
+    setIsDirty(true);
+  };
+
+  const handleSave = () => {
+    if (edge) onUpdateEdge(draft as Partial<EdgeData>);
+    else onUpdateNode(draft);
+    onClose();
+  };
+
+  const handleRequestClose = () => {
+    if (isDirty) setShowConfirm(true);
+    else onClose();
+  };
+
+  const handleConfirmDiscard = () => {
+    setShowConfirm(false);
+    onClose();
+  };
+
+  const panelProps = {
+    isDirty,
+    onRequestClose: handleRequestClose,
+    onSave: handleSave,
+    showConfirm,
+    onConfirmDiscard: handleConfirmDiscard,
+    onCancelConfirm: () => setShowConfirm(false),
+  };
+
+  if (!node && !edge) return null;
 
   // ── Edge panel ────────────────────────────────────────────────────────────
   if (edge) {
-    const d = (edge.data ?? {}) as EdgeData;
+    const d = draft as EdgeData;
     return (
       <Panel
+        {...panelProps}
         title="Sequence Flow"
-        onClose={onClose}
         onRemove={onRemoveEdge}
         removeLabel="Delete Connection"
       >
@@ -118,7 +245,7 @@ export function NodePropertiesPanel({
           <input
             className={inputCls}
             value={d.label ?? ""}
-            onChange={(e) => onUpdateEdge({ label: e.target.value })}
+            onChange={(e) => update({ label: e.target.value })}
             placeholder="e.g. Approved, Yes, Error…"
           />
           <p className="text-xs text-text-3">Shown on the connection line</p>
@@ -128,7 +255,7 @@ export function NodePropertiesPanel({
           <select
             className={selectCls}
             value={d.edgeType ?? "sequence"}
-            onChange={(e) => onUpdateEdge({ edgeType: e.target.value as EdgeData["edgeType"] })}
+            onChange={(e) => update({ edgeType: e.target.value as EdgeData["edgeType"] })}
           >
             <option value="sequence">Sequence Flow</option>
             <option value="conditional">Conditional Flow</option>
@@ -141,7 +268,7 @@ export function NodePropertiesPanel({
             <input
               className={inputCls}
               value={d.condition ?? ""}
-              onChange={(e) => onUpdateEdge({ condition: e.target.value })}
+              onChange={(e) => update({ condition: e.target.value })}
               placeholder="e.g. status === 'approved'"
             />
             <p className="text-xs text-text-3">Evaluated at runtime to determine if this path is taken</p>
@@ -163,13 +290,13 @@ export function NodePropertiesPanel({
 
   // ── Start Event (TriggerNode) ─────────────────────────────────────────────
   if (node.type === "triggerNode") {
-    const d = node.data as TriggerNodeData;
+    const d = draft as TriggerNodeData;
     return (
-      <Panel title="Start Event" onClose={onClose}>
+      <Panel {...panelProps} title="Start Event">
         <Field label="Trigger Type">
           <select
             value={d.triggerType ?? "manual"}
-            onChange={(e) => onUpdateNode({ triggerType: e.target.value as TriggerType })}
+            onChange={(e) => update({ triggerType: e.target.value as TriggerType })}
             className={selectCls}
           >
             <option value="manual">Manual Trigger</option>
@@ -184,7 +311,7 @@ export function NodePropertiesPanel({
         <Field label="Label (optional)">
           <input
             value={d.label ?? ""}
-            onChange={(e) => onUpdateNode({ label: e.target.value })}
+            onChange={(e) => update({ label: e.target.value })}
             placeholder="e.g. New deal created…"
             className={inputCls}
           />
@@ -199,13 +326,13 @@ export function NodePropertiesPanel({
 
   // ── End Event ─────────────────────────────────────────────────────────────
   if (node.type === "endEvent") {
-    const d = node.data as EndEventData;
+    const d = draft as EndEventData;
     return (
-      <Panel title="End Event" onClose={onClose} onRemove={onRemoveNode} removeLabel="Remove End Event">
+      <Panel {...panelProps} title="End Event" onRemove={onRemoveNode} removeLabel="Remove End Event">
         <Field label="End Type">
           <select
             value={d.subtype ?? "none"}
-            onChange={(e) => onUpdateNode({ subtype: e.target.value as EndEventSubtype })}
+            onChange={(e) => update({ subtype: e.target.value as EndEventSubtype })}
             className={selectCls}
           >
             <option value="none">Plain End</option>
@@ -218,7 +345,7 @@ export function NodePropertiesPanel({
         <Field label="Label (optional)">
           <input
             value={d.label ?? ""}
-            onChange={(e) => onUpdateNode({ label: e.target.value })}
+            onChange={(e) => update({ label: e.target.value })}
             placeholder="e.g. Process complete"
             className={inputCls}
           />
@@ -239,13 +366,13 @@ export function NodePropertiesPanel({
 
   // ── Gateway ───────────────────────────────────────────────────────────────
   if (node.type === "gateway") {
-    const d = node.data as GatewayData;
+    const d = draft as GatewayData;
     return (
-      <Panel title="Gateway" onClose={onClose} onRemove={onRemoveNode} removeLabel="Remove Gateway">
+      <Panel {...panelProps} title="Gateway" onRemove={onRemoveNode} removeLabel="Remove Gateway">
         <Field label="Gateway Type">
           <select
             value={d.gatewayType ?? "exclusive"}
-            onChange={(e) => onUpdateNode({ gatewayType: e.target.value as GatewayType })}
+            onChange={(e) => update({ gatewayType: e.target.value as GatewayType })}
             className={selectCls}
           >
             <option value="exclusive">Exclusive (XOR) — one path</option>
@@ -257,7 +384,7 @@ export function NodePropertiesPanel({
         <Field label="Label (optional)">
           <input
             value={d.label ?? ""}
-            onChange={(e) => onUpdateNode({ label: e.target.value })}
+            onChange={(e) => update({ label: e.target.value })}
             placeholder="e.g. Approval decision"
             className={inputCls}
           />
@@ -276,13 +403,13 @@ export function NodePropertiesPanel({
 
   // ── Task Node ─────────────────────────────────────────────────────────────
   if (node.type === "taskNode") {
-    const d = node.data as TaskData;
+    const d = draft as TaskData;
     return (
-      <Panel title="Task" onClose={onClose} onRemove={onRemoveNode} removeLabel="Remove Task">
+      <Panel {...panelProps} title="Task" onRemove={onRemoveNode} removeLabel="Remove Task">
         <Field label="Task Type">
           <select
             value={d.subtype ?? "task"}
-            onChange={(e) => onUpdateNode({ subtype: e.target.value as TaskSubtype })}
+            onChange={(e) => update({ subtype: e.target.value as TaskSubtype })}
             className={selectCls}
           >
             <option value="task">Task (Generic)</option>
@@ -297,7 +424,7 @@ export function NodePropertiesPanel({
         <Field label="Name">
           <input
             value={d.label ?? ""}
-            onChange={(e) => onUpdateNode({ label: e.target.value })}
+            onChange={(e) => update({ label: e.target.value })}
             placeholder="Task name…"
             className={inputCls}
           />
@@ -306,10 +433,10 @@ export function NodePropertiesPanel({
         <Field label="Description (optional)">
           <textarea
             value={d.description ?? ""}
-            onChange={(e) => onUpdateNode({ description: e.target.value })}
+            onChange={(e) => update({ description: e.target.value })}
             placeholder="What does this task do?"
             className={textareaCls}
-            rows={3}
+            rows={4}
           />
         </Field>
       </Panel>
@@ -318,18 +445,18 @@ export function NodePropertiesPanel({
 
   // ── Intermediate Event ────────────────────────────────────────────────────
   if (node.type === "intermediateEvent") {
-    const d = node.data as IntermediateEventData;
+    const d = draft as IntermediateEventData;
     return (
       <Panel
+        {...panelProps}
         title="Intermediate Event"
-        onClose={onClose}
         onRemove={onRemoveNode}
         removeLabel="Remove Event"
       >
         <Field label="Event Type">
           <select
             value={d.eventType ?? "timer"}
-            onChange={(e) => onUpdateNode({ eventType: e.target.value as IntermediateEventType })}
+            onChange={(e) => update({ eventType: e.target.value as IntermediateEventType })}
             className={selectCls}
           >
             <option value="timer">Timer</option>
@@ -342,7 +469,7 @@ export function NodePropertiesPanel({
         <Field label="Mode">
           <select
             value={d.mode ?? "catching"}
-            onChange={(e) => onUpdateNode({ mode: e.target.value as IntermediateEventMode })}
+            onChange={(e) => update({ mode: e.target.value as IntermediateEventMode })}
             className={selectCls}
           >
             <option value="catching">Catching</option>
@@ -353,7 +480,7 @@ export function NodePropertiesPanel({
         <Field label="Label (optional)">
           <input
             value={d.label ?? ""}
-            onChange={(e) => onUpdateNode({ label: e.target.value })}
+            onChange={(e) => update({ label: e.target.value })}
             placeholder="e.g. Wait 24h"
             className={inputCls}
           />
@@ -363,7 +490,7 @@ export function NodePropertiesPanel({
           <Field label="Timer Expression">
             <input
               value={d.timerExpression ?? ""}
-              onChange={(e) => onUpdateNode({ timerExpression: e.target.value })}
+              onChange={(e) => update({ timerExpression: e.target.value })}
               placeholder="PT24H · R/P1D · 2025-01-01T00:00Z"
               className={inputCls}
             />
@@ -382,32 +509,35 @@ export function NodePropertiesPanel({
 
   // ── Annotation ────────────────────────────────────────────────────────────
   if (node.type === "annotation") {
-    const d = node.data as AnnotationData;
+    const d = draft as AnnotationData;
     return (
-      <Panel title="Annotation" onClose={onClose} onRemove={onRemoveNode} removeLabel="Remove Annotation">
+      <Panel {...panelProps} title="Annotation" onRemove={onRemoveNode} removeLabel="Remove Annotation">
         <Field label="Note Text">
           <textarea
             value={d.text ?? ""}
-            onChange={(e) => onUpdateNode({ text: e.target.value })}
+            onChange={(e) => update({ text: e.target.value })}
             placeholder="Add a note or comment…"
             className={textareaCls}
-            rows={5}
+            rows={8}
           />
         </Field>
-        <p className="text-xs text-text-3 -mt-2">
-          Drag the resize handle to make the annotation larger.
-        </p>
       </Panel>
     );
   }
 
   // ── Agent Task (WorkflowStepNode) ─────────────────────────────────────────
   if (node.type === "workflowStep") {
-    const d = node.data as WorkflowStepData;
+    const d = draft as WorkflowStepData;
     const hasIncoming = edges.some((e) => e.target === node.id);
 
     return (
-      <Panel title="Agent Task" onClose={onClose} onRemove={onRemoveNode} removeLabel="Remove Agent Task">
+      <Panel
+        {...panelProps}
+        title="Agent Task"
+        onRemove={onRemoveNode}
+        removeLabel="Remove Agent Task"
+      >
+        {/* Agent identity card */}
         <div className="flex items-center gap-3 p-3 rounded-xl bg-surface-2 border border-border">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet to-violet-dim flex items-center justify-center shrink-0">
             <Bot className="w-4 h-4 text-white" />
@@ -418,6 +548,21 @@ export function NodePropertiesPanel({
           </div>
         </div>
 
+        {/* System prompt — primary control */}
+        <Field label="System Prompt">
+          <textarea
+            value={d.systemPrompt ?? ""}
+            onChange={(e) => update({ systemPrompt: e.target.value })}
+            placeholder="You are an expert sales analyst. Your job is to…"
+            className={`${textareaCls} min-h-[280px]`}
+            rows={12}
+          />
+          <p className="text-xs text-text-3">
+            Instructs the agent how to behave for this step. Overrides the agent&apos;s default system prompt.
+          </p>
+        </Field>
+
+        {/* Input type */}
         {hasIncoming ? (
           <InfoBox>
             <span className="block font-semibold text-violet/70 uppercase tracking-widest text-[10px] mb-1">Input</span>
@@ -427,7 +572,7 @@ export function NodePropertiesPanel({
           <Field label="Input Type">
             <select
               value={d.inputType ?? "any"}
-              onChange={(e) => onUpdateNode({ inputType: e.target.value as InputType })}
+              onChange={(e) => update({ inputType: e.target.value as InputType })}
               className={selectCls}
             >
               <option value="any">Any</option>
@@ -443,6 +588,7 @@ export function NodePropertiesPanel({
           </Field>
         )}
 
+        {/* Output */}
         <div className="rounded-xl bg-surface-2 border border-border px-3 py-2.5">
           <p className="text-[10px] font-semibold text-text-3 uppercase tracking-widest mb-1">Output</p>
           <p className="text-xs text-text-2">Passes result to the next connected step</p>

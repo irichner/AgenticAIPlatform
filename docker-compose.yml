@@ -55,11 +55,13 @@ services:
       - MCP_INGEST_SECRET=${MCP_INGEST_SECRET}
       - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       - OLLAMA_BASE_URL=http://ollama:11434
-      - ENV=development
+      - ENV=${ENV:-development}
+      - APP_BASE_URL=${APP_BASE_URL:-http://localhost:3000}
+      - API_PUBLIC_URL=${API_PUBLIC_URL:-http://localhost:3000}
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
       - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
       - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-http://localhost:3000/api/auth/google/callback}
-      - GOOGLE_INTEGRATION_REDIRECT_URI=http://localhost:3000/api/integrations/google/callback
+      - GOOGLE_INTEGRATION_REDIRECT_URI=${GOOGLE_INTEGRATION_REDIRECT_URI:-http://localhost:3000/api/integrations/google/callback}
       - RESEND_API_KEY=${RESEND_API_KEY:-}
       - EMAIL_FROM=${EMAIL_FROM:-noreply@lanara.app}
       - SMTP_HOST=${SMTP_HOST:-}
