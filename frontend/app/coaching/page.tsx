@@ -66,7 +66,6 @@ function MotivationMeter({ score }: { score: number }) {
 }
 
 function AttainmentRing({ pct }: { pct: number }) {
-  const clamp = Math.min(pct, 200);
   const color = pct >= 100 ? "text-emerald-400" : pct >= 70 ? "text-amber-400" : "text-rose-400";
   return (
     <div className="flex flex-col items-center gap-1">

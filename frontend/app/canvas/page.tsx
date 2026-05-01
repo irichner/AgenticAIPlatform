@@ -493,7 +493,7 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
         JSON.stringify({ name, description, buId, groupId, modelId, status, prompt, mcpIds }),
       );
     } catch { /* ignore */ }
-  }, [agent.id, name, description, buId, groupId, modelId, status, prompt, mcpIds]);
+  }, [agent.id, name, description, buId, groupId, modelId, status, prompt, mcpIds, orgId]);
 
   const handleCreateSwarm = async () => {
     const n = newSwarmName.trim();

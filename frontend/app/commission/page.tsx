@@ -4,7 +4,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  DollarSign, TrendingUp, Target, Plus, Zap, ChevronDown, ChevronUp,
+  DollarSign, Target, Plus, Zap, ChevronDown, ChevronUp,
   Calculator, BarChart2, Briefcase, CheckCircle2,
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";

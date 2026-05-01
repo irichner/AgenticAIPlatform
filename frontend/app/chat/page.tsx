@@ -8,7 +8,7 @@ import {
   Loader2, MessageSquare, User,
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { api, type ChatRoom, type ChatMessage, type ChatUser } from "@/lib/api";
+import { api, type ChatUser } from "@/lib/api";
 import { useAuth } from "@/contexts/auth";
 import { cn } from "@/lib/cn";
 
@@ -140,7 +140,6 @@ export default function ChatPage() {
   };
 
   const groups  = rooms.filter((r) => r.type === "group");
-  const directs = rooms.filter((r) => r.type === "direct");
 
   return (
     <div className="flex h-screen bg-surface-0 overflow-hidden">

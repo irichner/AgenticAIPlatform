@@ -7,7 +7,7 @@ import {
   BookOpen, Upload, Trash2, Search, RefreshCw,
   FileText, AlertCircle, CheckCircle2, Loader2,
   Plus, Pencil, Check, X, Eye, EyeOff, Cpu, KeyRound, Download,
-  Globe, ExternalLink, Sparkles, HardDrive,
+  Sparkles, HardDrive,
   ChevronDown, ChevronRight, Zap,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -530,6 +530,7 @@ const MODEL_CATALOG: ModelCatalogItem[] = [
 ];
 
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function AiModelForm({
   values, onChange, showKey, onToggleKey, error, onSubmit, onCancel, saving, submitLabel,
 }: {
@@ -1539,6 +1540,7 @@ function WorkspacesTab() {
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function SettingsTab() {
   const { currentOrg: settingsOrg } = useAuth();
   return (
