@@ -313,6 +313,14 @@ export interface Contact {
   buying_role: string | null;
   lead_source: string | null;
   notes: string | null;
+  timezone: string | null;
+  sentiment_score: number | null;
+  engagement_score: number | null;
+  last_reply_sentiment: string | null;
+  buying_signals: string[] | null;
+  objections: string[] | null;
+  competitor_mentions: string[] | null;
+  pending_enrichment: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -368,6 +376,13 @@ export interface Activity {
   external_id: string | null;
   created_at: string;
   updated_at: string;
+  // AI enrichment fields
+  sentiment: string | null;
+  urgency: string | null;
+  buying_signals: string[] | null;
+  objections: string[] | null;
+  next_steps: string | null;
+  enriched_at: string | null;
 }
 
 export interface AuditLogEntry {

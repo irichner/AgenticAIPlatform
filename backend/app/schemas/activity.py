@@ -47,3 +47,11 @@ class ActivityOut(ActivityBase):
     action_items: list[Any] | None = None
     created_at: datetime
     updated_at: datetime
+
+    # AI enrichment fields
+    sentiment: str | None = None
+    urgency: str | None = None
+    buying_signals: list[Any] | None = None
+    objections: list[Any] | None = None
+    next_steps: str | None = None
+    enriched_at: datetime | None = None

@@ -55,3 +55,4 @@ class ContactOut(ContactBase):
     buying_signals: list | None = None
     objections: list | None = None
     competitor_mentions: list | None = None
+    pending_enrichment: bool = False

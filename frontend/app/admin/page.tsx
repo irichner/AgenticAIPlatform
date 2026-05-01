@@ -1103,7 +1103,7 @@ function ModelRow({ model, onToggle, onDelete, onRoleChange, onUpdate, ollamaQue
 }) {
   const [settingRole, setSettingRole] = useState(false);
   const [updatingConcurrency, setUpdatingConcurrency] = useState(false);
-  const isComms = model.role === "comms_model";
+  const isDefault = model.role === "default_model";
   const concurrency = model.max_concurrent ?? 1;
 
   const setConcurrency = async (val: number) => {
@@ -1118,10 +1118,10 @@ function ModelRow({ model, onToggle, onDelete, onRoleChange, onUpdate, ollamaQue
     }
   };
 
-  const toggleCommsRole = async () => {
+  const toggleDefaultRole = async () => {
     setSettingRole(true);
     try {
-      await api.aiModels.setRole(model.id, isComms ? null : "comms_model");
+      await api.aiModels.setRole(model.id, isDefault ? null : "default_model");
       onRoleChange?.();
     } finally {
       setSettingRole(false);
@@ -1141,9 +1141,9 @@ function ModelRow({ model, onToggle, onDelete, onRoleChange, onUpdate, ollamaQue
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-medium text-text-1">{model.name}</p>
           <span className="text-xs text-text-3 capitalize">{model.provider}</span>
-          {isComms && (
+          {isDefault && (
             <span className="text-xs px-1.5 py-0.5 rounded bg-cyan/15 border border-cyan/30 text-cyan font-medium">
-              Comms
+              Default
             </span>
           )}
           {model.type === "local" && <OllamaQueueBadge modelId={model.model_id} queueData={ollamaQueueData} />}
@@ -1178,19 +1178,21 @@ function ModelRow({ model, onToggle, onDelete, onRoleChange, onUpdate, ollamaQue
         </div>
         <p className="text-xs text-text-3 font-mono mt-0.5">{model.model_id}</p>
       </div>
-      <button
-        onClick={toggleCommsRole}
-        disabled={settingRole}
-        title={isComms ? "Remove Comms model role" : "Set as Comms model"}
-        className={cn(
-          "text-xs px-2.5 py-1 rounded-lg border transition-colors shrink-0 disabled:opacity-40",
-          isComms
-            ? "border-cyan/40 bg-cyan/10 text-cyan hover:bg-rose-400/10 hover:border-rose-400/40 hover:text-rose-400"
-            : "border-white/10 text-text-3 hover:border-cyan/40 hover:text-cyan hover:bg-cyan/10",
-        )}
-      >
-        {isComms ? "Comms ✓" : "Set Comms"}
-      </button>
+      {(model.enabled || isDefault) && (
+        <button
+          onClick={toggleDefaultRole}
+          disabled={settingRole}
+          title={isDefault ? "Remove Default model role" : "Set as Default model"}
+          className={cn(
+            "text-xs px-2.5 py-1 rounded-lg border transition-colors shrink-0 disabled:opacity-40",
+            isDefault
+              ? "border-cyan/40 bg-cyan/10 text-cyan hover:bg-rose-400/10 hover:border-rose-400/40 hover:text-rose-400"
+              : "border-white/10 text-text-3 hover:border-cyan/40 hover:text-cyan hover:bg-cyan/10",
+          )}
+        >
+          {isDefault ? "Default ✓" : "Set Default"}
+        </button>
+      )}
       {onDelete && (
         <button onClick={onDelete} title="Remove model"
           className="text-text-3 hover:text-rose-400 transition-colors shrink-0 p-0.5">

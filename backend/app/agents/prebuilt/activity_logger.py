@@ -193,12 +193,13 @@ async def _process_signal(db: AsyncSession, event: Signal) -> None:
 
         cc_emails = _parse_cc_emails(payload.get("cc_email", ""))
 
+        activity_type = _activity_type_from_signal(event.source, event.event_type)
         activity = Activity(
             org_id=org_id,
             opportunity_id=entities["opportunity_id"],
             account_id=entities["account_id"],
             contact_id=entities["contact_id"],
-            type=_activity_type_from_signal(event.source, event.event_type),
+            type=activity_type,
             subject=payload.get("subject") or f"{event.source.title()} {event.event_type.replace('_', ' ')}",
             body=payload.get("body") or payload.get("transcript"),
             direction=payload.get("direction", "inbound"),
@@ -211,6 +212,14 @@ async def _process_signal(db: AsyncSession, event: Signal) -> None:
             cc_emails=cc_emails or None,
         )
         db.add(activity)
+
+        # Flag existing contacts for re-enrichment when new email arrives
+        if activity_type == "email" and entities["contact_id"]:
+            await db.execute(
+                update(Contact)
+                .where(Contact.id == entities["contact_id"])
+                .values(pending_enrichment=True)
+            )
 
         await db.execute(
             update(Signal)

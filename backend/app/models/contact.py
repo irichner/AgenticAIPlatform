@@ -46,3 +46,6 @@ class Contact(Base, TimestampMixin):
     buying_signals: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     objections: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     competitor_mentions: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+
+    # Set True by activity_logger when a new email arrives; cleared by signal_enricher when done
+    pending_enrichment: Mapped[bool] = mapped_column(default=False, server_default="false", nullable=False)

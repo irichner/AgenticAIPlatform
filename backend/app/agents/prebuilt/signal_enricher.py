@@ -1,11 +1,11 @@
 """Signal enricher — enriches Activity records with LLM-extracted intelligence.
 
-Only runs for orgs that have at least one ENABLED local (Ollama/LM Studio/LocalAI)
-or free-tier SaaS model (Groq) configured. Paid API models (Anthropic, OpenAI, etc.)
-are never used here to avoid unexpected billing.
+Uses the org's designated Default model (role = 'default_model'). If none is
+configured, falls back to the first enabled chat-capable model. Skips the org
+entirely if no model is available.
 
 For each eligible email activity:
-1. Sends subject + body to the org's free model with a structured extraction prompt
+1. Sends subject + body to the LLM with a structured extraction prompt
 2. Writes per-activity intelligence (sentiment, urgency, buying signals, etc.)
 3. Back-fills empty contact profile fields (phone, title, department, etc.)
 4. Accumulates buying_signals / objections / competitor_mentions on the contact
@@ -16,7 +16,7 @@ import json
 import re
 from datetime import datetime, timezone
 
-from sqlalchemy import select, update, or_, func
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -28,37 +28,14 @@ from app.models.ai_model import AiModel
 _POLL_INTERVAL_SECONDS = 30
 _BATCH_SIZE = 5
 
-# Providers with a meaningful free tier — add more here as needed
-_FREE_SAAS_PROVIDERS = frozenset({"groq"})
 
-
-def _is_free_model_filter():
-    """SQLAlchemy filter expression matching local or free-tier SaaS models."""
-    return or_(
-        AiModel.type == "local",
-        func.lower(AiModel.provider).in_(_FREE_SAAS_PROVIDERS),
-    )
-
-
-async def _get_free_llm(db: AsyncSession, org_id):
-    """Return a LangChain LLM only if the org has an enabled local/free model, else None."""
-    result = await db.execute(
-        select(AiModel)
-        .options(selectinload(AiModel.provider_rel))
-        .where(
-            AiModel.enabled == True,  # noqa: E712
-            AiModel.org_id == org_id,
-            _is_free_model_filter(),
-        )
-        .order_by(AiModel.created_at)
-        .limit(1)
-    )
-    model = result.scalar_one_or_none()
-    if model is None:
-        return None
-    from app.agents.llm import build_llm
-    provider_key = model.provider_rel.api_key if model.provider_rel else None
-    return build_llm(model, provider_api_key=provider_key)
+async def _get_default_llm(db: AsyncSession, org_id):
+    """Return a LangChain LLM for the org's Default model, falling back to any enabled model."""
+    from app.agents.llm import get_llm_by_role, get_active_llm
+    llm = await get_llm_by_role(db, org_id, "default_model")
+    if llm is not None:
+        return llm
+    return await get_active_llm(db, org_id=org_id)
 
 
 _PROMPT = """\
@@ -111,10 +88,8 @@ async def _enrich(db: AsyncSession, activity: Activity) -> None:
         await db.commit()
         return
 
-    llm = await _get_free_llm(db, org_id=activity.org_id)
+    llm = await _get_default_llm(db, org_id=activity.org_id)
     if llm is None:
-        # No eligible model for this org — skip without marking enriched
-        # so it will be picked up again once a model is enabled
         return
 
     data: dict = {}
@@ -160,9 +135,9 @@ async def _enrich(db: AsyncSession, activity: Activity) -> None:
                 if data.get(data_key) and not getattr(contact, db_field):
                     contact_vals[db_field] = data[data_key]
 
-            # Accumulate JSONB arrays (union, preserve insertion order)
             for field in ("buying_signals", "objections", "competitor_mentions"):
-                new_items = data.get(field) or []
+                raw = data.get(field)
+                new_items = raw if isinstance(raw, list) else ([raw] if isinstance(raw, str) and raw else [])
                 if new_items:
                     existing = getattr(contact, field) or []
                     contact_vals[field] = list(dict.fromkeys(existing + new_items))
@@ -175,11 +150,26 @@ async def _enrich(db: AsyncSession, activity: Activity) -> None:
                     update(Contact).where(Contact.id == contact.id).values(**contact_vals)
                 )
 
+            # Clear pending_enrichment once no more unenriched email activities remain
+            remaining = await db.execute(
+                select(Activity.id).where(
+                    Activity.contact_id == activity.contact_id,
+                    Activity.enriched_at.is_(None),
+                    Activity.type == "email",
+                ).limit(1)
+            )
+            if remaining.scalar_one_or_none() is None:
+                await db.execute(
+                    update(Contact)
+                    .where(Contact.id == activity.contact_id)
+                    .values(pending_enrichment=False)
+                )
+
     await db.commit()
 
 
 async def run_signal_enricher_loop() -> None:
-    """Background loop: enrich pending email activities for orgs with free/local models."""
+    """Background loop: enrich pending email activities using the org's Default model."""
     print("[signal_enricher] starting — waiting 60s before first run")
     await asyncio.sleep(60)
 
@@ -189,13 +179,10 @@ async def run_signal_enricher_loop() -> None:
                 from app.db.rls import bypass_rls
                 await bypass_rls(db)
 
-                # Subquery: org IDs that have at least one enabled local/free model
+                # Orgs with at least one enabled model (any model — gating moved to _get_default_llm)
                 eligible_orgs = (
                     select(AiModel.org_id)
-                    .where(
-                        AiModel.enabled == True,  # noqa: E712
-                        _is_free_model_filter(),
-                    )
+                    .where(AiModel.enabled == True)  # noqa: E712
                     .scalar_subquery()
                 )
 

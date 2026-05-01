@@ -351,8 +351,13 @@ function ContactPanel({ contact, account, activities, onClose, onContactUpdate }
     >
       {/* header */}
       <div className="p-4 border-b border-border/50 flex items-start gap-3">
-        <div className="w-10 h-10 rounded-full bg-cyan/10 flex items-center justify-center text-sm font-bold text-cyan shrink-0">
-          {initials}
+        <div className="relative w-10 h-10 shrink-0">
+          <div className="w-10 h-10 rounded-full bg-cyan/10 flex items-center justify-center text-sm font-bold text-cyan">
+            {initials}
+          </div>
+          {contact.pending_enrichment && (
+            <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-amber border-2 border-surface-0 animate-pulse" title="AI reprocessing queued" />
+          )}
         </div>
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-text-1">{contact.first_name} {contact.last_name}</p>
@@ -469,6 +474,51 @@ function ContactPanel({ contact, account, activities, onClose, onContactUpdate }
           </div>
         )}
 
+        {/* AI signals */}
+        {(contact.last_reply_sentiment || contact.buying_signals?.length || contact.objections?.length || contact.competitor_mentions?.length) && (
+          <div>
+            <p className="text-xs font-semibold text-text-3 uppercase tracking-wider mb-2">AI Signals</p>
+            <div className="space-y-1.5">
+              {contact.last_reply_sentiment && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-text-3 w-20 shrink-0">Last reply</span>
+                  <SentimentBadge value={contact.last_reply_sentiment} />
+                </div>
+              )}
+              {contact.buying_signals?.length ? (
+                <div>
+                  <p className="text-xs text-text-3 mb-1">Buying signals</p>
+                  <div className="flex flex-wrap gap-1">
+                    {contact.buying_signals.map((s, i) => (
+                      <span key={i} className="text-xs px-1.5 py-0.5 rounded bg-emerald/5 border border-emerald/20 text-emerald/80">{String(s)}</span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {contact.objections?.length ? (
+                <div>
+                  <p className="text-xs text-text-3 mb-1">Objections</p>
+                  <div className="flex flex-wrap gap-1">
+                    {contact.objections.map((o, i) => (
+                      <span key={i} className="text-xs px-1.5 py-0.5 rounded bg-rose/5 border border-rose/20 text-rose/80">{String(o)}</span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {contact.competitor_mentions?.length ? (
+                <div>
+                  <p className="text-xs text-text-3 mb-1">Competitors</p>
+                  <div className="flex flex-wrap gap-1">
+                    {contact.competitor_mentions.map((c, i) => (
+                      <span key={i} className="text-xs px-1.5 py-0.5 rounded bg-amber/5 border border-amber/20 text-amber/80">{String(c)}</span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        )}
+
         {/* notes */}
         {contact.notes && (
           <div>
@@ -492,8 +542,13 @@ function ContactPanel({ contact, account, activities, onClose, onContactUpdate }
                     </div>
                     <div className="min-w-0">
                       <p className="text-xs font-medium text-text-1 truncate">{a.subject ?? a.type}</p>
-                      <p className="text-xs text-text-3">{relativeTime(a.occurred_at)}</p>
+                      <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                        <p className="text-xs text-text-3">{relativeTime(a.occurred_at)}</p>
+                        <SentimentBadge value={a.sentiment} />
+                        <UrgencyBadge value={a.urgency} />
+                      </div>
                       {a.ai_summary && <p className="text-xs text-text-2 mt-0.5 line-clamp-2">{a.ai_summary}</p>}
+                      {a.next_steps && <p className="text-xs text-text-2 mt-0.5 line-clamp-1"><span className="text-text-3">Next: </span>{a.next_steps}</p>}
                     </div>
                   </div>
                 );
@@ -690,8 +745,13 @@ function ContactsTab({ accounts, contacts, opportunities }: {
       >
         {/* avatar + name + title */}
         <div className="flex items-center gap-2.5 flex-[2] min-w-0">
-          <div className="w-7 h-7 rounded-full bg-cyan/10 flex items-center justify-center text-xs font-bold text-cyan shrink-0">
-            {initials}
+          <div className="relative w-7 h-7 shrink-0">
+            <div className="w-7 h-7 rounded-full bg-cyan/10 flex items-center justify-center text-xs font-bold text-cyan">
+              {initials}
+            </div>
+            {c.pending_enrichment && (
+              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber border border-surface-0 animate-pulse" title="AI reprocessing queued" />
+            )}
           </div>
           <div className="min-w-0">
             <p className="text-sm font-medium text-text-1 truncate">{c.first_name} {c.last_name}</p>
@@ -961,6 +1021,36 @@ function ContactsTab({ accounts, contacts, opportunities }: {
   );
 }
 
+// ── Shared enrichment badges ──────────────────────────────────────────────────
+
+function SentimentBadge({ value }: { value: string | null | undefined }) {
+  if (!value) return null;
+  const styles: Record<string, string> = {
+    positive: "bg-emerald/10 border-emerald/30 text-emerald",
+    negative: "bg-rose/10 border-rose/30 text-rose",
+    neutral:  "bg-white/5 border-border text-text-3",
+  };
+  return (
+    <span className={cn("text-xs px-1.5 py-0.5 rounded border capitalize", styles[value] ?? styles.neutral)}>
+      {value}
+    </span>
+  );
+}
+
+function UrgencyBadge({ value }: { value: string | null | undefined }) {
+  if (!value) return null;
+  const styles: Record<string, string> = {
+    high:   "bg-rose/10 border-rose/30 text-rose",
+    medium: "bg-amber/10 border-amber/30 text-amber",
+    low:    "bg-white/5 border-border text-text-3",
+  };
+  return (
+    <span className={cn("text-xs px-1.5 py-0.5 rounded border capitalize", styles[value] ?? styles.low)}>
+      {value} urgency
+    </span>
+  );
+}
+
 // ── Activities Tab ────────────────────────────────────────────────────────────
 
 function ActivitiesTab() {
@@ -989,12 +1079,25 @@ function ActivitiesTab() {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-text-1">{a.subject ?? a.type}</p>
               {a.ai_summary && <p className="text-xs text-text-3 mt-0.5 line-clamp-2">{a.ai_summary}</p>}
-              <div className="flex items-center gap-2 mt-1">
+              {a.next_steps && <p className="text-xs text-text-2 mt-1 line-clamp-2"><span className="text-text-3">Next: </span>{a.next_steps}</p>}
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                 <span className="text-xs text-text-3">
                   {new Date(a.occurred_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                 </span>
                 <span className="text-xs px-1.5 py-0.5 rounded bg-white/5 border border-border text-text-3 capitalize">{a.source}</span>
+                <SentimentBadge value={a.sentiment} />
+                <UrgencyBadge value={a.urgency} />
               </div>
+              {(a.buying_signals?.length || a.objections?.length) ? (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {a.buying_signals?.map((s, i) => (
+                    <span key={i} className="text-xs px-1.5 py-0.5 rounded bg-emerald/5 border border-emerald/20 text-emerald/80">{s}</span>
+                  ))}
+                  {a.objections?.map((o, i) => (
+                    <span key={i} className="text-xs px-1.5 py-0.5 rounded bg-rose/5 border border-rose/20 text-rose/80">{o}</span>
+                  ))}
+                </div>
+              ) : null}
             </div>
           </div>
         );

@@ -295,7 +295,8 @@ async def set_model_role(
         raise HTTPException(status_code=404, detail="AI model not found")
 
     if body.role:
-        # Clear the role from any other model in the org
+        # Clear the role from any other model in the org first, then flush so the
+        # unique constraint doesn't see two rows with the same role simultaneously.
         existing = await db.execute(
             select(AiModel).where(
                 AiModel.org_id == org_id,
@@ -305,6 +306,7 @@ async def set_model_role(
         )
         for other in existing.scalars().all():
             other.role = None
+        await db.flush()
 
     model.role = body.role
     await db.commit()

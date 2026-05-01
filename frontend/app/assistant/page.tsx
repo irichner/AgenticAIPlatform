@@ -61,9 +61,10 @@ export default function AssistantPage() {
     else removeOrgItem(orgId, "default-model-id");
   };
 
+  const defaultModel = enabledModels.find((m) => m.role === "default_model") ?? enabledModels[0];
   const activeModelId = selectedModelId && enabledModels.some((m) => m.id === selectedModelId)
     ? selectedModelId
-    : (enabledModels[0]?.id ?? undefined);
+    : (defaultModel?.id ?? undefined);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
