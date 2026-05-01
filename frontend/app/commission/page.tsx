@@ -4,11 +4,10 @@ import { useState } from "react";
 import useSWR from "swr";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  DollarSign, Target, Plus, Zap, ChevronDown, ChevronUp,
-  Calculator, BarChart2, Briefcase, CheckCircle2,
+  DollarSign, Plus, Zap,
+  Calculator, CheckCircle2,
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { api, type OpportunityStage } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useAuth } from "@/contexts/auth";
 

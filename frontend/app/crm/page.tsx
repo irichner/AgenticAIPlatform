@@ -28,13 +28,6 @@ function healthColor(score: number | null) {
   return "text-rose";
 }
 
-function healthBadge(score: number | null) {
-  if (score == null) return "";
-  if (score >= 70) return "bg-emerald/10 border-emerald/30 text-emerald";
-  if (score >= 40) return "bg-amber/10 border-amber/30 text-amber";
-  return "bg-rose/10 border-rose/30 text-rose";
-}
-
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins  = Math.floor(diff / 60_000);
@@ -636,7 +629,7 @@ function ContactsTab({ accounts, contacts, opportunities }: {
   const toggleSort  = (key: string) =>
     setSort((s) => ({ key, dir: s.key === key && s.dir === "asc" ? "desc" : "asc" }));
   const toggleExpand = (id: string) =>
-    setExpanded((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    setExpanded((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   // ── contact sub-row ──
 

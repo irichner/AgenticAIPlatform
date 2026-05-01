@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Bot, ShieldCheck, Zap, Mail, MessageSquare, ArrowUpRight,
   Newspaper, RefreshCw, ExternalLink, Bell, Clock, Building2,
-  TrendingUp, AlertCircle, ChevronRight,
+  TrendingUp, ChevronRight,
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { api, type Run } from "@/lib/api";
