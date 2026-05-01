@@ -38,3 +38,12 @@ class Activity(Base, TimestampMixin):
     action_items: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     source: Mapped[str] = mapped_column(String(50), nullable=False, server_default="'manual'")
     external_id: Mapped[str | None] = mapped_column(String(500), nullable=True, unique=True)
+
+    # LLM enrichment (populated by signal_enricher)
+    enriched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sentiment: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    buying_signals: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    objections: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    urgency: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    next_steps: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cc_emails: Mapped[list | None] = mapped_column(JSONB, nullable=True)

@@ -32,6 +32,18 @@ _FREEMAIL_DOMAINS = frozenset({
 })
 
 
+def _parse_cc_emails(cc_raw: str) -> list[str]:
+    """Parse a CC header string into bare email addresses."""
+    if not cc_raw:
+        return []
+    emails = []
+    for part in cc_raw.split(","):
+        _, email = _parse_from_header(part)
+        if email and "@" in email:
+            emails.append(email)
+    return emails
+
+
 def _parse_from_header(raw: str) -> tuple[str, str]:
     """'Display Name <email@domain.com>' → (display_name, bare_email)."""
     raw = raw.strip()
@@ -179,6 +191,8 @@ async def _process_signal(db: AsyncSession, event: Signal) -> None:
         occurred_at_str = payload.get("occurred_at")
         occurred_at = datetime.fromisoformat(occurred_at_str) if occurred_at_str else datetime.now(timezone.utc)
 
+        cc_emails = _parse_cc_emails(payload.get("cc_email", ""))
+
         activity = Activity(
             org_id=org_id,
             opportunity_id=entities["opportunity_id"],
@@ -194,6 +208,7 @@ async def _process_signal(db: AsyncSession, event: Signal) -> None:
             action_items=None,
             source=event.source,
             external_id=external_id,
+            cc_emails=cc_emails or None,
         )
         db.add(activity)
 

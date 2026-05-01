@@ -73,6 +73,7 @@ async def lifespan(app: FastAPI):
     from app.agents.prebuilt.manager_briefing import run_manager_briefing_loop
     from app.agents.prebuilt.rep_coaching import run_coaching_loop
     from app.agents.prebuilt.gmail_poller import run_gmail_poller_loop
+    from app.agents.prebuilt.signal_enricher import run_signal_enricher_loop
     from app.agents.scheduler import run_scheduler_loop
     from app.core.data_retention import run_data_retention_loop
 
@@ -85,13 +86,14 @@ async def lifespan(app: FastAPI):
     task_briefing = asyncio.create_task(run_manager_briefing_loop())
     task_coaching = asyncio.create_task(run_coaching_loop())
     task_gmail   = asyncio.create_task(run_gmail_poller_loop())
+    task_enricher = asyncio.create_task(run_signal_enricher_loop())
     task_scheduler = asyncio.create_task(run_scheduler_loop())
     task_retention = asyncio.create_task(run_data_retention_loop())
     yield
     _bg_tasks = (
         task_provider, task_warmup, task_sweeper, task_activity_logger,
         task_deal_health, task_briefing, task_coaching, task_gmail,
-        task_scheduler, task_retention,
+        task_enricher, task_scheduler, task_retention,
     )
     for t in _bg_tasks:
         t.cancel()

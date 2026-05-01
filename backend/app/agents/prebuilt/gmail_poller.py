@@ -10,6 +10,7 @@ Every GMAIL_POLL_INTERVAL_SECONDS (default 5 min) it:
 """
 from __future__ import annotations
 import asyncio
+import base64
 import os
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
@@ -170,12 +171,70 @@ async def _fetch_threads(
                     f"/users/me/threads/{stub['id']}",
                     params={"format": "metadata", "metadataHeaders": ["Subject", "From", "To", "Date", "Cc", "List-Unsubscribe"]},
                 )
-                if detail.status_code == 200:
-                    threads.append(detail.json())
+                if detail.status_code != 200:
+                    continue
+                thread_data = detail.json()
+
+                # Fetch full body of the last message (one extra call per new thread)
+                messages = thread_data.get("messages", [])
+                if messages:
+                    last_id = messages[-1]["id"]
+                    body_resp = await client.get(
+                        f"/users/me/messages/{last_id}",
+                        params={"format": "full"},
+                    )
+                    if body_resp.status_code == 200:
+                        thread_data["_last_message_full"] = body_resp.json()
+
+                threads.append(thread_data)
             return threads, next_page_token
     except Exception as e:
         print(f"[gmail_poller] fetch error: {e}")
         return [], None
+
+
+def _extract_body_text(message: dict | None, max_chars: int = 4000) -> str:
+    """Walk a Gmail message's MIME parts and return the first plain-text body."""
+    if not message:
+        return ""
+
+    def _walk(parts: list) -> str:
+        for part in parts:
+            mime = part.get("mimeType", "")
+            data = part.get("body", {}).get("data", "")
+            if mime == "text/plain" and data:
+                # Gmail uses URL-safe base64 without padding
+                padded = data.replace("-", "+").replace("_", "/") + "=="
+                try:
+                    return base64.b64decode(padded).decode("utf-8", errors="replace")
+                except Exception:
+                    pass
+            sub = part.get("parts")
+            if sub:
+                result = _walk(sub)
+                if result:
+                    return result
+        return ""
+
+    payload = message.get("payload", {})
+    # Single-part message
+    top_data = payload.get("body", {}).get("data", "")
+    if top_data:
+        padded = top_data.replace("-", "+").replace("_", "/") + "=="
+        try:
+            return base64.b64decode(padded).decode("utf-8", errors="replace")[:max_chars]
+        except Exception:
+            pass
+
+    # Multi-part message
+    parts = payload.get("parts", [])
+    if parts:
+        text = _walk(parts)
+        if text:
+            return text[:max_chars]
+
+    # Final fallback: use snippet
+    return message.get("snippet", "")
 
 
 def _build_signal_payload(thread: dict) -> dict:
@@ -203,6 +262,8 @@ def _build_signal_payload(thread: dict) -> dict:
     except Exception:
         occurred_at = datetime.now(timezone.utc).isoformat()
 
+    body_text = _extract_body_text(thread.get("_last_message_full")) or last_msg.get("snippet", "")
+
     return {
         "thread_id": thread["id"],
         "subject": h_first.get("subject", "(no subject)"),
@@ -211,7 +272,7 @@ def _build_signal_payload(thread: dict) -> dict:
         "cc_email": h_last.get("cc", ""),
         "snippet": last_msg.get("snippet", ""),
         "message_count": len(messages),
-        "body": last_msg.get("snippet", ""),
+        "body": body_text,
         "occurred_at": occurred_at,
     }
 

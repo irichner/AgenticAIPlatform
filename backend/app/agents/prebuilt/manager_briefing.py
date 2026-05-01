@@ -15,40 +15,8 @@ import os
 from datetime import datetime, date, timezone, timedelta
 from typing import Any
 
-MCP_EMAIL_URL = os.getenv("MCP_EMAIL_URL", "http://mcp-email:8025")
 MCP_SLACK_URL = os.getenv("MCP_SLACK_URL", "http://mcp-slack:8026")
 BRIEFING_CHANNEL = os.getenv("BRIEFING_SLACK_CHANNEL", "#manager-briefings")
-
-async def _load_anthropic_config(db, org_id: str) -> tuple[str, str]:
-    from uuid import UUID as _UUID
-    from app.core.settings_service import get_setting
-    oid = _UUID(org_id)
-    api_key = await get_setting(db, oid, "anthropic_api_key") or os.getenv("ANTHROPIC_API_KEY", "")
-    model = await get_setting(db, oid, "anthropic_model") or os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
-    return api_key, model
-
-
-async def _claude(prompt: str, max_tokens: int, api_key: str, model: str) -> str:
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "max_tokens": max_tokens,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-        data = resp.json()
-        return data["content"][0]["text"]
-    except Exception as e:
-        return f"[Briefing generation failed: {e}]"
 
 
 async def _gather_team_context(db: Any, org_id: str) -> dict:
@@ -107,9 +75,17 @@ async def _gather_team_context(db: Any, org_id: str) -> dict:
     }
 
 
-async def generate_briefing(org_id: str, db: Any) -> str:
-    """Generate a manager intelligence briefing for the org."""
-    api_key, model = await _load_anthropic_config(db, org_id)
+async def generate_briefing(org_id: str, db: Any) -> str | None:
+    """Generate a manager intelligence briefing using the org's configured AI model.
+
+    Returns None if no AI model is configured for the org.
+    """
+    from uuid import UUID
+    from app.agents.llm import get_active_llm
+    llm = await get_active_llm(db, org_id=UUID(org_id))
+    if llm is None:
+        return None
+
     ctx = await _gather_team_context(db, org_id)
 
     prompt = f"""You are a revenue intelligence assistant generating a daily manager briefing.
@@ -128,7 +104,12 @@ Write a crisp manager briefing (5–8 bullet points max) covering:
 
 Be direct and specific. Use $ amounts. No fluff."""
 
-    return await _claude(prompt, max_tokens=1000, api_key=api_key, model=model)
+    try:
+        response = await llm.ainvoke(prompt)
+        return response.content
+    except Exception as e:
+        print(f"[manager_briefing] generation failed for org={org_id}: {e}")
+        return None
 
 
 async def _post_to_slack(channel: str, text: str) -> None:
@@ -143,9 +124,11 @@ async def _post_to_slack(channel: str, text: str) -> None:
         pass
 
 
-async def run_briefing_for_org(org_id: str, db: Any) -> str:
+async def run_briefing_for_org(org_id: str, db: Any) -> str | None:
     briefing = await generate_briefing(org_id, db)
-    header = f"*📊 Manager Briefing — {date.today().strftime('%B %d, %Y')}*\n\n"
+    if briefing is None:
+        return None
+    header = f"*Manager Briefing — {date.today().strftime('%B %d, %Y')}*\n\n"
     full_message = header + briefing
     await _post_to_slack(BRIEFING_CHANNEL, full_message)
     return briefing

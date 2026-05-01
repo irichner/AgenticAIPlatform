@@ -1,6 +1,9 @@
-"""LLM factory — returns a LangChain chat model from the first enabled AiModel in the DB."""
+"""LLM factory — returns a LangChain chat model from admin-configured AiModel records.
+
+All LLM selection is driven by the Admin → AI configuration. There are no hardcoded
+provider fallbacks — callers receive None and must handle the unconfigured case.
+"""
 from __future__ import annotations
-import os
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -9,7 +12,7 @@ from app.models.ai_model import AiModel
 
 
 async def get_active_llm(db: AsyncSession, org_id=None):
-    """Return a LangChain chat model for the first enabled AI model; falls back to Anthropic."""
+    """Return a LangChain chat model for the first enabled AI model, or None if unconfigured."""
     q = (
         select(AiModel)
         .options(selectinload(AiModel.provider_rel))
@@ -22,7 +25,7 @@ async def get_active_llm(db: AsyncSession, org_id=None):
     result = await db.execute(q)
     model = result.scalar_one_or_none()
     if model is None:
-        return await _default_llm(db)
+        return None
     provider_key = model.provider_rel.api_key if model.provider_rel else None
     return build_llm(model, provider_api_key=provider_key)
 
@@ -63,7 +66,7 @@ async def _fetch_model_by_role(db: AsyncSession, org_id, role: str):
 
 
 async def get_llm_by_id(db: AsyncSession, model_id: str):
-    """Return a LangChain chat model for a specific AI model by UUID; falls back to active."""
+    """Return a LangChain chat model for a specific AI model by UUID, or None if not found."""
     result = await db.execute(
         select(AiModel)
         .options(selectinload(AiModel.provider_rel))
@@ -71,23 +74,9 @@ async def get_llm_by_id(db: AsyncSession, model_id: str):
     )
     model = result.scalar_one_or_none()
     if model is None:
-        return await get_active_llm(db)
+        return None
     provider_key = model.provider_rel.api_key if model.provider_rel else None
     return build_llm(model, provider_api_key=provider_key)
-
-
-async def _default_llm(db: AsyncSession | None = None):
-    from langchain_anthropic import ChatAnthropic
-    from app.core.settings_service import get_setting_any_org
-    model = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
-    api_key = None
-    if db is not None:
-        model = await get_setting_any_org(db, "anthropic_model") or model
-        api_key = await get_setting_any_org(db, "anthropic_api_key")
-    kwargs: dict = {"model": model, "temperature": 0}
-    if api_key:
-        kwargs["api_key"] = api_key
-    return ChatAnthropic(**kwargs)
 
 
 def build_llm(model: AiModel, provider_api_key: str | None = None):

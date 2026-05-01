@@ -5,7 +5,6 @@ deal signals) and generate a prioritized action recommendation.
 """
 from __future__ import annotations
 import json
-import os
 import re
 from datetime import datetime, timezone
 from uuid import UUID
@@ -97,25 +96,17 @@ Be direct and actionable. Format as JSON:
 }}"""
 
     try:
-        from langchain_anthropic import ChatAnthropic
-        from langchain_core.messages import HumanMessage
-
-        from app.core.settings_service import get_setting
-        _api_key = await get_setting(db, org_id, "anthropic_api_key") or os.getenv("ANTHROPIC_API_KEY", "")
-        _model = await get_setting(db, org_id, "anthropic_model") or os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
-        llm = ChatAnthropic(
-            model=_model,
-            api_key=_api_key,
-            max_tokens=512,
-        )
-        response = await llm.ainvoke([HumanMessage(content=prompt)])
-        text = response.content.strip()
-        json_match = re.search(r'\{.*\}', text, re.DOTALL)
-        if json_match:
-            result = json.loads(json_match.group())
-            result["opportunity_id"] = str(opportunity_id)
-            result["opportunity_name"] = opp.name
-            return result
+        from app.agents.llm import get_active_llm
+        llm = await get_active_llm(db, org_id=org_id)
+        if llm is not None:
+            response = await llm.ainvoke(prompt)
+            text = response.content.strip()
+            json_match = re.search(r'\{.*\}', text, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+                result["opportunity_id"] = str(opportunity_id)
+                result["opportunity_name"] = opp.name
+                return result
     except Exception:
         pass
 

@@ -18,7 +18,6 @@ import json
 import os
 import uuid
 
-ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 from datetime import datetime, timezone
 
 from langchain_core.messages import HumanMessage
@@ -78,6 +77,8 @@ async def execute_run(run_id: str) -> None:
 
         try:
             llm = await get_active_llm(db, org_id=agent.org_id)
+            if llm is None:
+                raise RuntimeError("No AI model configured. Go to Admin → AI to add one.")
 
             agent_type = None
             if version and version.graph_definition:
@@ -272,6 +273,8 @@ async def execute_run_resume(
 
         try:
             llm = await get_active_llm(db, org_id=agent.org_id)
+            if llm is None:
+                raise RuntimeError("No AI model configured. Go to Admin → AI to add one.")
 
             bu_res2 = await db.execute(select(BusinessUnit).where(BusinessUnit.id == agent.business_unit_id))
             bu2 = bu_res2.scalar_one_or_none()

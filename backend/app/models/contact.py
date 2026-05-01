@@ -2,8 +2,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import String, Text, ForeignKey, DateTime, text
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy import String, Text, Float, ForeignKey, DateTime, text
+from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
 from app.models.base import Base, TimestampMixin
 
 
@@ -30,3 +30,19 @@ class Contact(Base, TimestampMixin):
     seniority: Mapped[str | None] = mapped_column(String(50), nullable=True)
     linkedin_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_contacted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Profile enrichment
+    department: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    buying_role: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    lead_source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    timezone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    # LLM-derived signal aggregates (updated by signal_enricher)
+    sentiment_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    engagement_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_reply_sentiment: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    buying_signals: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    objections: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    competitor_mentions: Mapped[list | None] = mapped_column(JSONB, nullable=True)
