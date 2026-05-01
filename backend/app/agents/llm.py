@@ -13,11 +13,20 @@ from app.models.ai_model import AiModel
 
 
 async def get_active_llm(db: AsyncSession, org_id=None):
-    """Return a LangChain chat model for the first enabled AI model, or None if unconfigured."""
+    """Return a LangChain chat model for the first enabled chat-capable AI model, or None."""
+    from sqlalchemy import or_
     q = (
         select(AiModel)
         .options(selectinload(AiModel.provider_rel))
-        .where(AiModel.enabled == True)  # noqa: E712
+        .where(
+            AiModel.enabled == True,  # noqa: E712
+            # Only chat-capable models; skip audio/embedding/image models.
+            # NULL capabilities means manually added and unclassified — include those.
+            or_(
+                AiModel.capabilities.is_(None),
+                AiModel.capabilities.contains(["chat"]),
+            ),
+        )
         .order_by(AiModel.created_at)
         .limit(1)
     )

@@ -99,16 +99,18 @@ _KNOWN_CONTEXT: dict[str, int] = {
     "command":           4_096,
 }
 
-# Prefixes / substrings that mark non-chat OpenAI models
-_OPENAI_EXCLUDE = (
+# Substrings that mark non-chat models across all providers
+_NON_CHAT_TOKENS = (
     "whisper", "davinci", "babbage", "curie", "text-", "dall-e", "tts-",
-    "embedding", "moderation", "realtime", "audio",
+    "-tts", "embedding", "embed-", "-embed", "moderation", "realtime", "audio",
+    "transcri",
 )
 
 
-def _is_openai_chat(model_id: str) -> bool:
+def _is_chat_model(model_id: str) -> bool:
+    """Return True only if model_id looks like a chat/completion model."""
     m = model_id.lower()
-    return not any(m.startswith(p) or p in m for p in _OPENAI_EXCLUDE)
+    return not any(tok in m for tok in _NON_CHAT_TOKENS)
 
 
 def _format_model_name(model_id: str) -> str:
@@ -119,14 +121,22 @@ def _format_model_name(model_id: str) -> str:
 
 
 def _infer_capabilities(model_data: dict[str, Any]) -> list[str]:
-    caps: list[str] = []
     mid = (model_data.get("id") or "").lower()
+
+    # Non-chat modalities — return without "chat" so get_active_llm skips them
+    if any(tok in mid for tok in ("whisper", "tts-", "-tts", "transcri", "audio")):
+        return ["audio"]
+    if any(tok in mid for tok in ("embedding", "embed-", "-embed")):
+        return ["embedding"]
+    if any(tok in mid for tok in ("dall-e", "image-gen", "stable-diffusion")):
+        return ["image"]
+
+    # Chat models — may also support vision / code
+    caps = ["chat"]
     if any(x in mid for x in ("vision", "vl", "visual", "multimodal", "omni")):
         caps.append("vision")
     if any(x in mid for x in ("code", "coder", "codestral", "starcoder")):
         caps.append("code")
-    if not caps:
-        caps.append("chat")
     return caps
 
 
@@ -138,8 +148,8 @@ def _parse_models(raw: list[dict], provider: str) -> list[dict]:
         if not model_id:
             continue
 
-        # Provider-specific filtering
-        if provider == "openai" and not _is_openai_chat(model_id):
+        # Skip non-chat models (audio, embedding, image-gen) for all providers
+        if not _is_chat_model(model_id):
             continue
 
         display = (
