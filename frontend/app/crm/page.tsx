@@ -5,8 +5,8 @@ import useSWR from "swr";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Building2, Users, TrendingUp, Plus, Search,
-  Mail, Phone, Globe, Target, Activity,
-  ChevronUp, ChevronDown, X, CheckCircle2, AlertCircle, Clock,
+  Mail, Phone, Globe, Target, Activity, MapPin, Briefcase,
+  ChevronUp, ChevronDown, ChevronRight, X, CheckCircle2, AlertCircle, Clock,
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { api, type Account, type Activity as ActivityType, type Contact, type Opportunity, type OpportunityStage } from "@/lib/api";
@@ -47,7 +47,10 @@ function relativeTime(iso: string): string {
 }
 
 type SortDir = "asc" | "desc";
-type Tab = "pipeline" | "companies" | "contacts" | "activities";
+type Tab = "pipeline" | "contacts" | "activities";
+
+// Tailwind grid matching the 7-column company header
+const CO_GRID = "grid grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr]";
 
 // ── Sort column header ────────────────────────────────────────────────────────
 
@@ -60,26 +63,22 @@ function SortTh({ label, sortKey, sort, onSort, className }: {
 }) {
   const active = sort.key === sortKey;
   return (
-    <th
+    <button
       onClick={() => onSort(sortKey)}
       className={cn(
-        "px-4 py-2.5 text-left text-xs font-semibold text-text-3 uppercase tracking-wider cursor-pointer hover:text-text-1 select-none whitespace-nowrap",
+        "flex items-center gap-1 text-xs font-semibold text-text-3 uppercase tracking-wider hover:text-text-1 select-none whitespace-nowrap",
         className,
       )}
     >
-      <span className="inline-flex items-center gap-1">
-        {label}
-        {active
-          ? sort.dir === "asc"
-            ? <ChevronUp className="w-3 h-3 text-violet" />
-            : <ChevronDown className="w-3 h-3 text-violet" />
-          : <ChevronUp className="w-3 h-3 opacity-20" />}
-      </span>
-    </th>
+      {label}
+      {active
+        ? sort.dir === "asc"
+          ? <ChevronUp className="w-3 h-3 text-violet" />
+          : <ChevronDown className="w-3 h-3 text-violet" />
+        : <ChevronUp className="w-3 h-3 opacity-20" />}
+    </button>
   );
 }
-
-// ── Filter chip / select shared styles ───────────────────────────────────────
 
 const selectCls = "bg-white/5 border border-border rounded-xl px-3 py-2 text-xs text-text-2 focus:outline-none focus:border-violet/50 cursor-pointer";
 
@@ -288,23 +287,210 @@ function NewOppModal({
   );
 }
 
-// ── Companies Tab ─────────────────────────────────────────────────────────────
+// ── Contact detail panel ──────────────────────────────────────────────────────
 
-function CompaniesTab({ accounts, contacts, opportunities }: {
+function ContactPanel({ contact, account, activities, onClose }: {
+  contact: Contact;
+  account: Account | undefined;
+  activities: ActivityType[];
+  onClose: () => void;
+}) {
+  const typeIcon: Record<string, React.ElementType> = {
+    email: Mail, call: Phone, meeting: Users, note: Activity, task: Target,
+  };
+  const typeColor: Record<string, string> = {
+    email:   "text-violet bg-violet/10",
+    call:    "text-cyan bg-cyan/10",
+    meeting: "text-amber bg-amber/10",
+    note:    "text-emerald bg-emerald/10",
+    task:    "text-rose bg-rose/10",
+  };
+
+  const initials = `${(contact.first_name[0] ?? "").toUpperCase()}${(contact.last_name[0] ?? "").toUpperCase()}`;
+  const recentActs = activities.slice(0, 6);
+
+  const metaRow = (label: string, value: string | null | undefined, icon?: React.ElementType) => {
+    if (!value) return null;
+    const Icon = icon;
+    return (
+      <div className="flex items-start gap-2">
+        {Icon && <Icon className="w-3.5 h-3.5 text-text-3 mt-0.5 shrink-0" />}
+        <div className="min-w-0">
+          <p className="text-xs text-text-3">{label}</p>
+          <p className="text-xs font-medium text-text-1 truncate">{value}</p>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <motion.div
+      key="ct-panel"
+      initial={{ opacity: 0, x: 20 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 20 }}
+      transition={{ duration: 0.18 }}
+      className="w-72 shrink-0 glass rounded-2xl overflow-hidden"
+    >
+      {/* header */}
+      <div className="p-4 border-b border-border/50 flex items-start gap-3">
+        <div className="w-10 h-10 rounded-full bg-cyan/10 flex items-center justify-center text-sm font-bold text-cyan shrink-0">
+          {initials}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-text-1">{contact.first_name} {contact.last_name}</p>
+          <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+            {contact.title && <p className="text-xs text-text-3">{contact.title}</p>}
+            {contact.seniority && (
+              <span className="text-xs px-1.5 py-0.5 rounded-full bg-white/5 border border-border text-text-3">
+                {contact.seniority}
+              </span>
+            )}
+          </div>
+        </div>
+        <button onClick={onClose} className="text-text-3 hover:text-text-1 transition-colors mt-0.5 shrink-0">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="p-4 space-y-5 overflow-y-auto max-h-[68vh]">
+        {/* quick actions */}
+        <div className="flex flex-wrap gap-1.5">
+          {contact.email && (
+            <a href={`mailto:${contact.email}`} className="text-xs px-2 py-1 rounded-lg bg-violet/10 border border-violet/30 text-violet flex items-center gap-1.5 hover:bg-violet/20 transition-colors">
+              <Mail className="w-3 h-3" /> Email
+            </a>
+          )}
+          {contact.phone && (
+            <a href={`tel:${contact.phone}`} className="text-xs px-2 py-1 rounded-lg bg-cyan/10 border border-cyan/30 text-cyan flex items-center gap-1.5 hover:bg-cyan/20 transition-colors">
+              <Phone className="w-3 h-3" /> Call
+            </a>
+          )}
+          {contact.linkedin_url && (
+            <a href={contact.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-xs px-2 py-1 rounded-lg bg-white/5 border border-border text-text-3 flex items-center gap-1.5 hover:border-violet/30 hover:text-text-2 transition-colors">
+              <Globe className="w-3 h-3" /> LinkedIn
+            </a>
+          )}
+        </div>
+
+        {/* company */}
+        {account && (
+          <div>
+            <p className="text-xs font-semibold text-text-3 uppercase tracking-wider mb-1.5">Company</p>
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-md bg-violet/10 flex items-center justify-center shrink-0">
+                <Building2 className="w-3 h-3 text-violet" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-text-1">{account.name}</p>
+                {account.industry && <p className="text-xs text-text-3">{account.industry}</p>}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* enrichment fields */}
+        {(contact.department || contact.location || contact.buying_role || contact.lead_source) && (
+          <div>
+            <p className="text-xs font-semibold text-text-3 uppercase tracking-wider mb-2">Details</p>
+            <div className="space-y-2">
+              {metaRow("Department", contact.department, Briefcase)}
+              {metaRow("Location", contact.location, MapPin)}
+              {contact.buying_role && (
+                <div className="flex items-start gap-2">
+                  <Target className="w-3.5 h-3.5 text-text-3 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs text-text-3">Buying Role</p>
+                    <span className={cn("text-xs px-1.5 py-0.5 rounded-full border font-medium",
+                      contact.buying_role === "Decision Maker"   ? "bg-violet/10 border-violet/30 text-violet" :
+                      contact.buying_role === "Champion"         ? "bg-emerald/10 border-emerald/30 text-emerald" :
+                      contact.buying_role === "Economic Buyer"   ? "bg-amber/10 border-amber/30 text-amber" :
+                      contact.buying_role === "Blocker"          ? "bg-rose/10 border-rose/30 text-rose" :
+                      "bg-white/5 border-border text-text-2"
+                    )}>
+                      {contact.buying_role}
+                    </span>
+                  </div>
+                </div>
+              )}
+              {metaRow("Lead Source", contact.lead_source)}
+            </div>
+          </div>
+        )}
+
+        {/* notes */}
+        {contact.notes && (
+          <div>
+            <p className="text-xs font-semibold text-text-3 uppercase tracking-wider mb-1.5">Notes</p>
+            <p className="text-xs text-text-2 leading-relaxed">{contact.notes}</p>
+          </div>
+        )}
+
+        {/* recent activity */}
+        <div>
+          <p className="text-xs font-semibold text-text-3 uppercase tracking-wider mb-2">Recent Activity</p>
+          {recentActs.length > 0 ? (
+            <div className="space-y-2.5">
+              {recentActs.map((a) => {
+                const Icon  = typeIcon[a.type]  ?? Activity;
+                const color = typeColor[a.type] ?? "text-text-3 bg-white/5";
+                return (
+                  <div key={a.id} className="flex items-start gap-2">
+                    <div className={cn("w-6 h-6 rounded-md flex items-center justify-center shrink-0 mt-0.5", color)}>
+                      <Icon className="w-3 h-3" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-text-1 truncate">{a.subject ?? a.type}</p>
+                      <p className="text-xs text-text-3">{relativeTime(a.occurred_at)}</p>
+                      {a.ai_summary && <p className="text-xs text-text-2 mt-0.5 line-clamp-2">{a.ai_summary}</p>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-xs text-text-3">No activity recorded yet.</p>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// ── Contacts Tab (company-grouped expandable) ─────────────────────────────────
+
+function ContactsTab({ accounts, contacts, opportunities }: {
   accounts: Account[];
   contacts: Contact[];
   opportunities: Opportunity[];
 }) {
-  const [search, setSearch] = useState("");
+  const { data: activities = [] } = useSWR("crm-activities", () => api.crm.activities.list());
+
+  // filters
+  const [search, setSearch]               = useState("");
   const [industryFilter, setIndustryFilter] = useState("all");
-  const [healthFilter, setHealthFilter] = useState("all");
-  const [dealsOnly, setDealsOnly] = useState(false);
+  const [healthFilter, setHealthFilter]   = useState("all");
+  const [seniorityFilter, setSeniorityFilter] = useState("all");
+  const [buyingRoleFilter, setBuyingRoleFilter] = useState("all");
+  const [dealsOnly, setDealsOnly]         = useState(false);
+
+  // sort (company rows only)
   const [sort, setSort] = useState<{ key: string; dir: SortDir }>({ key: "name", dir: "asc" });
-  const [selected, setSelected] = useState<Account | null>(null);
+
+  // expand / select
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<Contact | null>(null);
+
+  // ── derived maps ──
 
   const contactsBy = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const c of contacts) if (c.account_id) m.set(c.account_id, (m.get(c.account_id) ?? 0) + 1);
+    const m = new Map<string, Contact[]>();
+    for (const c of contacts) {
+      if (!c.account_id) continue;
+      const list = m.get(c.account_id) ?? [];
+      list.push(c);
+      m.set(c.account_id, list);
+    }
     return m;
   }, [contacts]);
 
@@ -324,15 +510,59 @@ function CompaniesTab({ accounts, contacts, opportunities }: {
     return m;
   }, [opportunities]);
 
+  const accountMap = useMemo(() => {
+    const m = new Map<string, Account>();
+    for (const a of accounts) m.set(a.id, a);
+    return m;
+  }, [accounts]);
+
+  const contactActivity = useMemo(() => {
+    const map = new Map<string, ActivityType[]>();
+    for (const a of activities) {
+      if (!a.contact_id) continue;
+      const list = map.get(a.contact_id) ?? [];
+      list.push(a);
+      map.set(a.contact_id, list);
+    }
+    for (const [id, list] of map)
+      map.set(id, list.sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime()));
+    return map;
+  }, [activities]);
+
+  // ── filter options ──
+
   const industries = useMemo(
     () => [...new Set(accounts.map((a) => a.industry).filter(Boolean) as string[])].sort(),
     [accounts],
   );
+  const seniorities = useMemo(
+    () => [...new Set(contacts.map((c) => c.seniority).filter(Boolean) as string[])].sort(),
+    [contacts],
+  );
+  const buyingRoles = useMemo(
+    () => [...new Set(contacts.map((c) => c.buying_role).filter(Boolean) as string[])].sort(),
+    [contacts],
+  );
 
-  const rows = useMemo(() => {
+  // ── contact-level filter ──
+
+  const contactPassesFilter = useMemo(() => {
+    const q = search.toLowerCase();
+    return (c: Contact): boolean => {
+      const name = `${c.first_name} ${c.last_name}`.toLowerCase();
+      if (q && !name.includes(q) && !(c.email ?? "").toLowerCase().includes(q)) return false;
+      if (seniorityFilter !== "all" && c.seniority !== seniorityFilter) return false;
+      if (buyingRoleFilter !== "all" && c.buying_role !== buyingRoleFilter) return false;
+      return true;
+    };
+  }, [search, seniorityFilter, buyingRoleFilter]);
+
+  // ── sorted & filtered company rows ──
+
+  const visibleAccounts = useMemo(() => {
+    const q = search.toLowerCase();
     const list = accounts.filter((a) => {
-      const q = search.toLowerCase();
-      if (q && !a.name.toLowerCase().includes(q) && !(a.domain ?? "").toLowerCase().includes(q)) return false;
+      // company-level filters
       if (industryFilter !== "all" && a.industry !== industryFilter) return false;
       if (healthFilter !== "all") {
         const h = a.health_score;
@@ -341,6 +571,20 @@ function CompaniesTab({ accounts, contacts, opportunities }: {
         if (healthFilter === "risk"   && (h == null || h >= 40)) return false;
       }
       if (dealsOnly && (openOppBy.get(a.id) ?? 0) === 0) return false;
+
+      // search: company name OR any contact name/email
+      if (q) {
+        const nameMatch = a.name.toLowerCase().includes(q) || (a.domain ?? "").toLowerCase().includes(q);
+        const contactMatch = (contactsBy.get(a.id) ?? []).some(contactPassesFilter);
+        if (!nameMatch && !contactMatch) return false;
+      }
+
+      // if contact-level filters active, company must have ≥1 matching contact
+      if (seniorityFilter !== "all" || buyingRoleFilter !== "all") {
+        const anyMatch = (contactsBy.get(a.id) ?? []).some(contactPassesFilter);
+        if (!anyMatch) return false;
+      }
+
       return true;
     });
 
@@ -348,42 +592,120 @@ function CompaniesTab({ accounts, contacts, opportunities }: {
       let av: string | number = 0;
       let bv: string | number = 0;
       switch (sort.key) {
-        case "name":      av = a.name;                     bv = b.name;                     break;
-        case "industry":  av = a.industry ?? "";            bv = b.industry ?? "";            break;
-        case "employees": av = a.employee_count ?? -1;     bv = b.employee_count ?? -1;     break;
-        case "openARR":   av = openARRBy.get(a.id) ?? 0;  bv = openARRBy.get(b.id) ?? 0;  break;
-        case "deals":     av = openOppBy.get(a.id) ?? 0;  bv = openOppBy.get(b.id) ?? 0;  break;
-        case "health":    av = a.health_score ?? -1;       bv = b.health_score ?? -1;       break;
-        case "contacts":  av = contactsBy.get(a.id) ?? 0; bv = contactsBy.get(b.id) ?? 0; break;
+        case "name":      av = a.name; bv = b.name; break;
+        case "industry":  av = a.industry ?? ""; bv = b.industry ?? ""; break;
+        case "employees": av = a.employee_count ?? -1; bv = b.employee_count ?? -1; break;
+        case "openARR":   av = openARRBy.get(a.id) ?? 0; bv = openARRBy.get(b.id) ?? 0; break;
+        case "deals":     av = openOppBy.get(a.id) ?? 0; bv = openOppBy.get(b.id) ?? 0; break;
+        case "health":    av = a.health_score ?? -1; bv = b.health_score ?? -1; break;
+        case "contacts":  av = (contactsBy.get(a.id) ?? []).length; bv = (contactsBy.get(b.id) ?? []).length; break;
       }
       const cmp = typeof av === "string" ? (av as string).localeCompare(bv as string) : (av as number) - (bv as number);
       return sort.dir === "asc" ? cmp : -cmp;
     });
-  }, [accounts, search, industryFilter, healthFilter, dealsOnly, sort, contactsBy, openOppBy, openARRBy]);
+  }, [accounts, search, industryFilter, healthFilter, dealsOnly, seniorityFilter, buyingRoleFilter, sort, contactsBy, openOppBy, openARRBy, contactPassesFilter]);
 
-  const toggleSort = (key: string) =>
+  // contacts without a company that pass filters
+  const unassigned = useMemo(
+    () => contacts.filter((c) => !c.account_id && contactPassesFilter(c))
+      .sort((a, b) => {
+        const ad = contactActivity.get(a.id)?.[0]?.occurred_at ?? "";
+        const bd = contactActivity.get(b.id)?.[0]?.occurred_at ?? "";
+        return bd.localeCompare(ad);
+      }),
+    [contacts, contactPassesFilter, contactActivity],
+  );
+
+  const toggleSort  = (key: string) =>
     setSort((s) => ({ key, dir: s.key === key && s.dir === "asc" ? "desc" : "asc" }));
+  const toggleExpand = (id: string) =>
+    setExpanded((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
-  const panelContacts = useMemo(
-    () => selected ? contacts.filter((c) => c.account_id === selected.id) : [],
-    [selected, contacts],
-  );
-  const panelDeals = useMemo(
-    () => selected ? opportunities.filter((o) => o.account_id === selected.id && !o.won_at && !o.lost_at) : [],
-    [selected, opportunities],
-  );
+  // ── contact sub-row ──
+
+  const ContactRow = ({ c, indent = true }: { c: Contact; indent?: boolean }) => {
+    const acts    = contactActivity.get(c.id) ?? [];
+    const last    = acts[0] ?? null;
+    const initials = `${(c.first_name[0] ?? "").toUpperCase()}${(c.last_name[0] ?? "").toUpperCase()}`;
+    const isSel   = selected?.id === c.id;
+    return (
+      <div
+        onClick={(e) => { e.stopPropagation(); setSelected(isSel ? null : c); }}
+        className={cn(
+          "flex items-center gap-3 py-2.5 pr-4 cursor-pointer hover:bg-white/[0.04] transition-colors border-b border-border/20 last:border-0",
+          indent ? "pl-14" : "pl-4",
+          isSel && "bg-violet/[0.06]",
+        )}
+      >
+        {/* avatar + name + title */}
+        <div className="flex items-center gap-2.5 flex-[2] min-w-0">
+          <div className="w-7 h-7 rounded-full bg-cyan/10 flex items-center justify-center text-xs font-bold text-cyan shrink-0">
+            {initials}
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-text-1 truncate">{c.first_name} {c.last_name}</p>
+            {c.title && <p className="text-xs text-text-3 truncate">{c.title}</p>}
+          </div>
+        </div>
+        {/* seniority */}
+        <div className="w-20 shrink-0">
+          {c.seniority
+            ? <span className="text-xs px-1.5 py-0.5 rounded-full bg-white/5 border border-border text-text-3">{c.seniority}</span>
+            : <span className="text-text-3 text-xs">—</span>}
+        </div>
+        {/* buying role */}
+        <div className="w-28 shrink-0 hidden lg:block">
+          <span className={cn(
+            "text-xs truncate block",
+            !c.buying_role && "text-text-3",
+            c.buying_role === "Decision Maker"  && "text-violet",
+            c.buying_role === "Champion"        && "text-emerald",
+            c.buying_role === "Economic Buyer"  && "text-amber",
+            c.buying_role === "Blocker"         && "text-rose",
+          )}>
+            {c.buying_role ?? "—"}
+          </span>
+        </div>
+        {/* last contact */}
+        <div className="w-20 shrink-0 text-xs text-text-2">
+          {last ? relativeTime(last.occurred_at) : <span className="text-text-3">Never</span>}
+        </div>
+        {/* comms */}
+        <div className="w-10 shrink-0 text-xs text-text-2 text-right">{acts.length || "—"}</div>
+        {/* actions */}
+        <div className="flex items-center gap-2 ml-2 shrink-0">
+          {c.email && (
+            <a href={`mailto:${c.email}`} onClick={(e) => e.stopPropagation()} className="text-text-3 hover:text-violet transition-colors">
+              <Mail className="w-3.5 h-3.5" />
+            </a>
+          )}
+          {c.phone && (
+            <a href={`tel:${c.phone}`} onClick={(e) => e.stopPropagation()} className="text-text-3 hover:text-violet transition-colors">
+              <Phone className="w-3.5 h-3.5" />
+            </a>
+          )}
+          {c.linkedin_url && (
+            <a href={c.linkedin_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-text-3 hover:text-violet transition-colors">
+              <Globe className="w-3.5 h-3.5" />
+            </a>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="flex gap-4 items-start">
-      {/* Table */}
+      {/* ── table side ── */}
       <div className="flex-1 min-w-0 space-y-3">
-        {/* Toolbar */}
+
+        {/* toolbar */}
         <div className="flex items-center gap-2 flex-wrap">
           <div className="relative flex-1 min-w-44">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-3" />
             <input
               className="w-full pl-9 pr-4 py-2 bg-white/5 border border-border rounded-xl text-sm text-text-1 placeholder:text-text-3 focus:outline-none focus:border-violet/50"
-              placeholder="Search companies…"
+              placeholder="Search companies or contacts…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -400,449 +722,187 @@ function CompaniesTab({ accounts, contacts, opportunities }: {
             <option value="ok">At-Risk (40–69)</option>
             <option value="risk">Critical (&lt;40)</option>
           </select>
-          <button onClick={() => setDealsOnly((v) => !v)} className={filterChip(dealsOnly)}>
-            Has Open Deals
-          </button>
-        </div>
-
-        {/* Table */}
-        <div className="glass rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-white/[0.03] border-b border-border">
-              <tr>
-                <SortTh label="Company"   sortKey="name"      sort={sort} onSort={toggleSort} className="pl-4" />
-                <SortTh label="Industry"  sortKey="industry"  sort={sort} onSort={toggleSort} />
-                <SortTh label="Employees" sortKey="employees" sort={sort} onSort={toggleSort} />
-                <SortTh label="Open ARR"  sortKey="openARR"   sort={sort} onSort={toggleSort} />
-                <SortTh label="Deals"     sortKey="deals"     sort={sort} onSort={toggleSort} />
-                <SortTh label="Health"    sortKey="health"    sort={sort} onSort={toggleSort} />
-                <SortTh label="Contacts"  sortKey="contacts"  sort={sort} onSort={toggleSort} />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/40">
-              {rows.map((account) => {
-                const isSel = selected?.id === account.id;
-                return (
-                  <tr
-                    key={account.id}
-                    onClick={() => setSelected(isSel ? null : account)}
-                    className={cn(
-                      "cursor-pointer transition-colors hover:bg-white/[0.03]",
-                      isSel && "bg-violet/[0.06]",
-                    )}
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-7 h-7 rounded-lg bg-violet/10 flex items-center justify-center shrink-0">
-                          <Building2 className="w-3.5 h-3.5 text-violet" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-text-1">{account.name}</p>
-                          {account.domain && <p className="text-xs text-text-3">{account.domain}</p>}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-text-3">{account.industry ?? "—"}</td>
-                    <td className="px-4 py-3 text-sm text-text-2">{fmt(account.employee_count)}</td>
-                    <td className="px-4 py-3 text-sm font-medium text-violet">{fmt(openARRBy.get(account.id) ?? 0, "$")}</td>
-                    <td className="px-4 py-3 text-sm text-text-2">{openOppBy.get(account.id) ?? 0}</td>
-                    <td className="px-4 py-3">
-                      {account.health_score != null
-                        ? <span className={cn("text-sm font-bold", healthColor(account.health_score))}>{account.health_score}</span>
-                        : <span className="text-text-3 text-sm">—</span>}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-text-2">{contactsBy.get(account.id) ?? 0}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {rows.length === 0 && (
-            <p className="text-center py-12 text-sm text-text-3">No companies match your filters.</p>
-          )}
-        </div>
-      </div>
-
-      {/* Detail panel */}
-      <AnimatePresence>
-        {selected && (
-          <motion.div
-            key="co-panel"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 20 }}
-            transition={{ duration: 0.18 }}
-            className="w-72 shrink-0 glass rounded-2xl overflow-hidden"
-          >
-            <div className="p-4 border-b border-border/50 flex items-start gap-3">
-              <div className="w-9 h-9 rounded-xl bg-violet/10 flex items-center justify-center shrink-0">
-                <Building2 className="w-4 h-4 text-violet" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-text-1 truncate">{selected.name}</p>
-                {selected.domain && <p className="text-xs text-text-3">{selected.domain}</p>}
-              </div>
-              <button onClick={() => setSelected(null)} className="text-text-3 hover:text-text-1 transition-colors mt-0.5 shrink-0">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-4 space-y-4 overflow-y-auto max-h-[62vh]">
-              <div className="flex flex-wrap gap-1.5">
-                {selected.industry && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-white/5 border border-border text-text-3">{selected.industry}</span>
-                )}
-                {selected.employee_count != null && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-white/5 border border-border text-text-3">{fmt(selected.employee_count)} employees</span>
-                )}
-                {selected.health_score != null && (
-                  <span className={cn("text-xs px-2 py-0.5 rounded-full border", healthBadge(selected.health_score))}>
-                    Health {selected.health_score}
-                  </span>
-                )}
-              </div>
-
-              {panelContacts.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-text-3 uppercase tracking-wider mb-2">Contacts · {panelContacts.length}</p>
-                  <div className="space-y-1.5">
-                    {panelContacts.map((c) => (
-                      <div key={c.id} className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-cyan/10 flex items-center justify-center text-xs font-bold text-cyan shrink-0">
-                          {(c.first_name[0] ?? "").toUpperCase()}{(c.last_name[0] ?? "").toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="text-xs font-medium text-text-1 truncate">{c.first_name} {c.last_name}</p>
-                          {c.title && <p className="text-xs text-text-3 truncate">{c.title}</p>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {panelDeals.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-text-3 uppercase tracking-wider mb-2">Open Deals · {panelDeals.length}</p>
-                  <div className="space-y-1.5">
-                    {panelDeals.map((o) => (
-                      <div key={o.id} className="bg-white/[0.03] border border-border/50 rounded-lg p-2.5">
-                        <p className="text-xs font-medium text-text-1 truncate">{o.name}</p>
-                        {o.arr != null && o.arr > 0 && <p className="text-xs font-semibold text-violet">{fmt(o.arr, "$")}</p>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {panelContacts.length === 0 && panelDeals.length === 0 && (
-                <p className="text-xs text-text-3 text-center py-4">No contacts or deals yet.</p>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-// ── Contacts Tab ──────────────────────────────────────────────────────────────
-
-function ContactsTab({ contacts, accounts }: { contacts: Contact[]; accounts: Account[] }) {
-  const { data: activities = [] } = useSWR("crm-activities", () => api.crm.activities.list());
-  const [search, setSearch] = useState("");
-  const [companyFilter, setCompanyFilter] = useState("all");
-  const [seniorityFilter, setSeniorityFilter] = useState("all");
-  const [recencyFilter, setRecencyFilter] = useState("all");
-  const [sort, setSort] = useState<{ key: string; dir: SortDir }>({ key: "lastContact", dir: "desc" });
-  const [selected, setSelected] = useState<Contact | null>(null);
-
-  const contactActivity = useMemo(() => {
-    const map = new Map<string, ActivityType[]>();
-    for (const a of activities) {
-      if (!a.contact_id) continue;
-      const list = map.get(a.contact_id) ?? [];
-      list.push(a);
-      map.set(a.contact_id, list);
-    }
-    for (const [id, list] of map)
-      map.set(id, list.sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime()));
-    return map;
-  }, [activities]);
-
-  const accountMap = useMemo(() => {
-    const m = new Map<string, Account>();
-    for (const a of accounts) m.set(a.id, a);
-    return m;
-  }, [accounts]);
-
-  const seniorities = useMemo(
-    () => [...new Set(contacts.map((c) => c.seniority).filter(Boolean) as string[])].sort(),
-    [contacts],
-  );
-
-  const accountsWithContacts = useMemo(() => {
-    const ids = new Set(contacts.map((c) => c.account_id).filter(Boolean));
-    return accounts.filter((a) => ids.has(a.id));
-  }, [contacts, accounts]);
-
-  const rows = useMemo(() => {
-    const now = Date.now();
-    const WEEK  = 7  * 86_400_000;
-    const MONTH = 30 * 86_400_000;
-
-    const list = contacts.filter((c) => {
-      const q = search.toLowerCase();
-      if (q && !`${c.first_name} ${c.last_name}`.toLowerCase().includes(q) && !(c.email ?? "").toLowerCase().includes(q)) return false;
-      if (companyFilter !== "all" && c.account_id !== companyFilter) return false;
-      if (seniorityFilter !== "all" && c.seniority !== seniorityFilter) return false;
-      if (recencyFilter !== "all") {
-        const last = contactActivity.get(c.id)?.[0]?.occurred_at;
-        const ago = last ? now - new Date(last).getTime() : Infinity;
-        if (recencyFilter === "week"    && ago > WEEK)  return false;
-        if (recencyFilter === "month"   && ago > MONTH) return false;
-        if (recencyFilter === "overdue" && ago <= MONTH) return false;
-      }
-      return true;
-    });
-
-    return [...list].sort((a, b) => {
-      let av: string | number = 0;
-      let bv: string | number = 0;
-      switch (sort.key) {
-        case "name":        av = `${a.first_name} ${a.last_name}`; bv = `${b.first_name} ${b.last_name}`; break;
-        case "company":     av = accountMap.get(a.account_id ?? "")?.name ?? ""; bv = accountMap.get(b.account_id ?? "")?.name ?? ""; break;
-        case "seniority":   av = a.seniority ?? ""; bv = b.seniority ?? ""; break;
-        case "lastContact": av = contactActivity.get(a.id)?.[0]?.occurred_at ?? ""; bv = contactActivity.get(b.id)?.[0]?.occurred_at ?? ""; break;
-        case "comms":       av = contactActivity.get(a.id)?.length ?? 0; bv = contactActivity.get(b.id)?.length ?? 0; break;
-      }
-      const cmp = typeof av === "string" ? (av as string).localeCompare(bv as string) : (av as number) - (bv as number);
-      return sort.dir === "asc" ? cmp : -cmp;
-    });
-  }, [contacts, search, companyFilter, seniorityFilter, recencyFilter, sort, contactActivity, accountMap]);
-
-  const toggleSort = (key: string) =>
-    setSort((s) => ({ key, dir: s.key === key && s.dir === "asc" ? "desc" : "asc" }));
-
-  const panelActs = useMemo(
-    () => selected ? (contactActivity.get(selected.id) ?? []).slice(0, 6) : [],
-    [selected, contactActivity],
-  );
-
-  const typeIcon: Record<string, React.ElementType> = {
-    email: Mail, call: Phone, meeting: Users, note: Activity, task: Target,
-  };
-  const typeColor: Record<string, string> = {
-    email:   "text-violet bg-violet/10",
-    call:    "text-cyan bg-cyan/10",
-    meeting: "text-amber bg-amber/10",
-    note:    "text-emerald bg-emerald/10",
-    task:    "text-rose bg-rose/10",
-  };
-
-  return (
-    <div className="flex gap-4 items-start">
-      {/* Table */}
-      <div className="flex-1 min-w-0 space-y-3">
-        {/* Toolbar */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="relative flex-1 min-w-44">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-3" />
-            <input
-              className="w-full pl-9 pr-4 py-2 bg-white/5 border border-border rounded-xl text-sm text-text-1 placeholder:text-text-3 focus:outline-none focus:border-violet/50"
-              placeholder="Search contacts…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          {accountsWithContacts.length > 0 && (
-            <select className={selectCls} value={companyFilter} onChange={(e) => setCompanyFilter(e.target.value)}>
-              <option value="all">All Companies</option>
-              {accountsWithContacts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-          )}
           {seniorities.length > 0 && (
             <select className={selectCls} value={seniorityFilter} onChange={(e) => setSeniorityFilter(e.target.value)}>
               <option value="all">All Seniority</option>
               {seniorities.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           )}
-          <select className={selectCls} value={recencyFilter} onChange={(e) => setRecencyFilter(e.target.value)}>
-            <option value="all">Any recency</option>
-            <option value="week">This week</option>
-            <option value="month">This month</option>
-            <option value="overdue">Overdue (&gt;30 days)</option>
-          </select>
+          {buyingRoles.length > 0 && (
+            <select className={selectCls} value={buyingRoleFilter} onChange={(e) => setBuyingRoleFilter(e.target.value)}>
+              <option value="all">All Roles</option>
+              {buyingRoles.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          )}
+          <button onClick={() => setDealsOnly((v) => !v)} className={filterChip(dealsOnly)}>
+            Has Open Deals
+          </button>
         </div>
 
-        {/* Table */}
+        {/* table */}
         <div className="glass rounded-2xl overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-white/[0.03] border-b border-border">
-              <tr>
-                <SortTh label="Name"         sortKey="name"        sort={sort} onSort={toggleSort} className="pl-4" />
-                <SortTh label="Company"      sortKey="company"     sort={sort} onSort={toggleSort} />
-                <SortTh label="Seniority"    sortKey="seniority"   sort={sort} onSort={toggleSort} />
-                <SortTh label="Last Contact" sortKey="lastContact" sort={sort} onSort={toggleSort} />
-                <SortTh label="Comms"        sortKey="comms"       sort={sort} onSort={toggleSort} />
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-text-3 uppercase tracking-wider">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/40">
-              {rows.map((c) => {
-                const acts     = contactActivity.get(c.id) ?? [];
-                const last     = acts[0] ?? null;
-                const initials = `${(c.first_name[0] ?? "").toUpperCase()}${(c.last_name[0] ?? "").toUpperCase()}`;
-                const company  = accountMap.get(c.account_id ?? "");
-                const isSel    = selected?.id === c.id;
-                return (
-                  <tr
-                    key={c.id}
-                    onClick={() => setSelected(isSel ? null : c)}
-                    className={cn(
-                      "cursor-pointer transition-colors hover:bg-white/[0.03]",
-                      isSel && "bg-violet/[0.06]",
+          {/* company header */}
+          <div className={cn(CO_GRID, "px-4 py-2.5 border-b border-border bg-white/[0.03] gap-3 items-center")}>
+            <div className="pl-9">
+              <SortTh label="Company" sortKey="name" sort={sort} onSort={toggleSort} />
+            </div>
+            <SortTh label="Industry"  sortKey="industry"  sort={sort} onSort={toggleSort} />
+            <SortTh label="Employees" sortKey="employees" sort={sort} onSort={toggleSort} />
+            <SortTh label="Open ARR"  sortKey="openARR"   sort={sort} onSort={toggleSort} />
+            <SortTh label="Deals"     sortKey="deals"     sort={sort} onSort={toggleSort} />
+            <SortTh label="Health"    sortKey="health"    sort={sort} onSort={toggleSort} />
+            <SortTh label="Contacts"  sortKey="contacts"  sort={sort} onSort={toggleSort} />
+          </div>
+
+          {/* company rows */}
+          {visibleAccounts.map((account) => {
+            const isExp = expanded.has(account.id);
+            const companyContacts = (contactsBy.get(account.id) ?? []).filter(contactPassesFilter)
+              .sort((a, b) => {
+                const ad = contactActivity.get(a.id)?.[0]?.occurred_at ?? "";
+                const bd = contactActivity.get(b.id)?.[0]?.occurred_at ?? "";
+                return bd.localeCompare(ad);
+              });
+
+            return (
+              <div key={account.id} className="border-b border-border/40 last:border-0">
+                {/* company row */}
+                <div
+                  onClick={() => toggleExpand(account.id)}
+                  className={cn(
+                    CO_GRID,
+                    "px-4 py-3 gap-3 items-center cursor-pointer hover:bg-white/[0.03] transition-colors",
+                    isExp && "bg-white/[0.02]",
+                  )}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <ChevronRight
+                      className={cn("w-3.5 h-3.5 text-text-3 transition-transform duration-200 shrink-0", isExp && "rotate-90")}
+                    />
+                    <div className="w-7 h-7 rounded-lg bg-violet/10 flex items-center justify-center shrink-0">
+                      <Building2 className="w-3.5 h-3.5 text-violet" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-text-1 truncate">{account.name}</p>
+                      {account.domain && <p className="text-xs text-text-3">{account.domain}</p>}
+                    </div>
+                  </div>
+                  <div className="text-xs text-text-3 truncate">{account.industry ?? "—"}</div>
+                  <div className="text-sm text-text-2">{fmt(account.employee_count)}</div>
+                  <div className="text-sm font-medium text-violet">{fmt(openARRBy.get(account.id) ?? 0, "$")}</div>
+                  <div className="text-sm text-text-2">{openOppBy.get(account.id) ?? 0}</div>
+                  <div>
+                    {account.health_score != null
+                      ? <span className={cn("text-sm font-bold", healthColor(account.health_score))}>{account.health_score}</span>
+                      : <span className="text-text-3 text-sm">—</span>}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm text-text-2">{companyContacts.length}</span>
+                    {companyContacts.length > 0 && (
+                      <span className="text-xs text-text-3">contacts</span>
                     )}
+                  </div>
+                </div>
+
+                {/* expandable contacts */}
+                <AnimatePresence initial={false}>
+                  {isExp && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2, ease: "easeInOut" }}
+                      className="overflow-hidden border-t border-border/30 bg-white/[0.015]"
+                    >
+                      {/* contact sub-header */}
+                      <div className="flex items-center gap-3 pl-14 pr-4 py-1.5 border-b border-border/20">
+                        <div className="flex-[2] text-xs font-semibold text-text-3 uppercase tracking-wider">Name</div>
+                        <div className="w-20 shrink-0 text-xs font-semibold text-text-3 uppercase tracking-wider">Seniority</div>
+                        <div className="w-28 shrink-0 hidden lg:block text-xs font-semibold text-text-3 uppercase tracking-wider">Buying Role</div>
+                        <div className="w-20 shrink-0 text-xs font-semibold text-text-3 uppercase tracking-wider">Last Contact</div>
+                        <div className="w-10 shrink-0 text-xs font-semibold text-text-3 uppercase tracking-wider text-right">Comms</div>
+                        <div className="w-16 shrink-0" />
+                      </div>
+                      {companyContacts.length > 0
+                        ? companyContacts.map((c) => <ContactRow key={c.id} c={c} indent />)
+                        : <p className="pl-14 pr-4 py-3 text-xs text-text-3 italic">No contacts match current filters.</p>
+                      }
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })}
+
+          {/* unassigned contacts */}
+          {unassigned.length > 0 && (
+            <div className="border-t border-border/40">
+              <div
+                onClick={() => toggleExpand("__unassigned__")}
+                className={cn(
+                  CO_GRID,
+                  "px-4 py-3 gap-3 items-center cursor-pointer hover:bg-white/[0.03] transition-colors",
+                  expanded.has("__unassigned__") && "bg-white/[0.02]",
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <ChevronRight
+                    className={cn("w-3.5 h-3.5 text-text-3 transition-transform duration-200 shrink-0", expanded.has("__unassigned__") && "rotate-90")}
+                  />
+                  <div className="w-7 h-7 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
+                    <Users className="w-3.5 h-3.5 text-text-3" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-text-3">No Company</p>
+                    <p className="text-xs text-text-3">{unassigned.length} contacts</p>
+                  </div>
+                </div>
+                <div className="text-xs text-text-3">—</div>
+                <div className="text-text-3 text-sm">—</div>
+                <div className="text-text-3 text-sm">—</div>
+                <div className="text-text-3 text-sm">—</div>
+                <div className="text-text-3 text-sm">—</div>
+                <div className="text-sm text-text-2">{unassigned.length}</div>
+              </div>
+              <AnimatePresence initial={false}>
+                {expanded.has("__unassigned__") && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.2, ease: "easeInOut" }}
+                    className="overflow-hidden border-t border-border/30 bg-white/[0.015]"
                   >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-7 h-7 rounded-full bg-cyan/10 flex items-center justify-center text-xs font-bold text-cyan shrink-0">
-                          {initials}
-                        </div>
-                        <div>
-                          <p className="font-medium text-text-1">{c.first_name} {c.last_name}</p>
-                          {c.title && <p className="text-xs text-text-3">{c.title}</p>}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-text-3">{company?.name ?? "—"}</td>
-                    <td className="px-4 py-3">
-                      {c.seniority
-                        ? <span className="text-xs px-1.5 py-0.5 rounded-full bg-white/5 border border-border text-text-3">{c.seniority}</span>
-                        : <span className="text-text-3 text-xs">—</span>}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-text-2">
-                      {last ? relativeTime(last.occurred_at) : <span className="text-text-3">Never</span>}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-text-2">{acts.length || "—"}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2.5">
-                        {c.email && (
-                          <a href={`mailto:${c.email}`} onClick={(e) => e.stopPropagation()} className="text-text-3 hover:text-violet transition-colors">
-                            <Mail className="w-3.5 h-3.5" />
-                          </a>
-                        )}
-                        {c.phone && (
-                          <a href={`tel:${c.phone}`} onClick={(e) => e.stopPropagation()} className="text-text-3 hover:text-violet transition-colors">
-                            <Phone className="w-3.5 h-3.5" />
-                          </a>
-                        )}
-                        {c.linkedin_url && (
-                          <a href={c.linkedin_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-text-3 hover:text-violet transition-colors">
-                            <Globe className="w-3.5 h-3.5" />
-                          </a>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {rows.length === 0 && (
-            <p className="text-center py-12 text-sm text-text-3">No contacts match your filters.</p>
+                    <div className="flex items-center gap-3 pl-14 pr-4 py-1.5 border-b border-border/20">
+                      <div className="flex-[2] text-xs font-semibold text-text-3 uppercase tracking-wider">Name</div>
+                      <div className="w-20 shrink-0 text-xs font-semibold text-text-3 uppercase tracking-wider">Seniority</div>
+                      <div className="w-28 shrink-0 hidden lg:block text-xs font-semibold text-text-3 uppercase tracking-wider">Buying Role</div>
+                      <div className="w-20 shrink-0 text-xs font-semibold text-text-3 uppercase tracking-wider">Last Contact</div>
+                      <div className="w-10 shrink-0 text-xs font-semibold text-text-3 uppercase tracking-wider text-right">Comms</div>
+                      <div className="w-16 shrink-0" />
+                    </div>
+                    {unassigned.map((c) => <ContactRow key={c.id} c={c} indent />)}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
+
+          {visibleAccounts.length === 0 && unassigned.length === 0 && (
+            <p className="text-center py-12 text-sm text-text-3">No results match your filters.</p>
           )}
         </div>
       </div>
 
-      {/* Detail panel */}
+      {/* ── contact detail panel ── */}
       <AnimatePresence>
         {selected && (
-          <motion.div
-            key="ct-panel"
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 20 }}
-            transition={{ duration: 0.18 }}
-            className="w-72 shrink-0 glass rounded-2xl overflow-hidden"
-          >
-            <div className="p-4 border-b border-border/50 flex items-start gap-3">
-              <div className="w-9 h-9 rounded-full bg-cyan/10 flex items-center justify-center text-sm font-bold text-cyan shrink-0">
-                {(selected.first_name[0] ?? "").toUpperCase()}{(selected.last_name[0] ?? "").toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-text-1">{selected.first_name} {selected.last_name}</p>
-                {selected.title && <p className="text-xs text-text-3">{selected.title}</p>}
-              </div>
-              <button onClick={() => setSelected(null)} className="text-text-3 hover:text-text-1 transition-colors mt-0.5 shrink-0">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="p-4 space-y-4 overflow-y-auto max-h-[62vh]">
-              {/* Quick actions */}
-              <div className="flex flex-wrap gap-1.5">
-                {selected.seniority && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-white/5 border border-border text-text-3">{selected.seniority}</span>
-                )}
-                {selected.email && (
-                  <a href={`mailto:${selected.email}`} className="text-xs px-2 py-0.5 rounded-full bg-violet/10 border border-violet/30 text-violet flex items-center gap-1 hover:bg-violet/20 transition-colors">
-                    <Mail className="w-3 h-3" /> Email
-                  </a>
-                )}
-                {selected.phone && (
-                  <a href={`tel:${selected.phone}`} className="text-xs px-2 py-0.5 rounded-full bg-cyan/10 border border-cyan/30 text-cyan flex items-center gap-1 hover:bg-cyan/20 transition-colors">
-                    <Phone className="w-3 h-3" /> Call
-                  </a>
-                )}
-                {selected.linkedin_url && (
-                  <a href={selected.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-xs px-2 py-0.5 rounded-full bg-white/5 border border-border text-text-3 flex items-center gap-1 hover:border-violet/30 transition-colors">
-                    <Globe className="w-3 h-3" /> LinkedIn
-                  </a>
-                )}
-              </div>
-
-              {/* Company */}
-              {selected.account_id && accountMap.get(selected.account_id) && (
-                <div>
-                  <p className="text-xs font-semibold text-text-3 uppercase tracking-wider mb-1.5">Company</p>
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-md bg-violet/10 flex items-center justify-center shrink-0">
-                      <Building2 className="w-3 h-3 text-violet" />
-                    </div>
-                    <p className="text-xs font-medium text-text-1">{accountMap.get(selected.account_id)?.name}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Recent activity */}
-              {panelActs.length > 0 ? (
-                <div>
-                  <p className="text-xs font-semibold text-text-3 uppercase tracking-wider mb-2">Recent Activity</p>
-                  <div className="space-y-2.5">
-                    {panelActs.map((a) => {
-                      const Icon  = typeIcon[a.type]  ?? Activity;
-                      const color = typeColor[a.type] ?? "text-text-3 bg-white/5";
-                      return (
-                        <div key={a.id} className="flex items-start gap-2">
-                          <div className={cn("w-6 h-6 rounded-md flex items-center justify-center shrink-0 mt-0.5", color)}>
-                            <Icon className="w-3 h-3" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-xs font-medium text-text-1 truncate">{a.subject ?? a.type}</p>
-                            <p className="text-xs text-text-3">{relativeTime(a.occurred_at)}</p>
-                            {a.ai_summary && <p className="text-xs text-text-2 mt-0.5 line-clamp-2">{a.ai_summary}</p>}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : (
-                <p className="text-xs text-text-3 text-center py-4">No activity recorded yet.</p>
-              )}
-            </div>
-          </motion.div>
+          <ContactPanel
+            contact={selected}
+            account={accountMap.get(selected.account_id ?? "")}
+            activities={contactActivity.get(selected.id) ?? []}
+            onClose={() => setSelected(null)}
+          />
         )}
       </AnimatePresence>
     </div>
@@ -902,20 +962,20 @@ export default function CrmPage() {
   const [tab, setTab] = useState<Tab>("pipeline");
   const [showNewOpp, setShowNewOpp] = useState(false);
 
-  const { data: stages = [],       mutate: mutateStages } = useSWR("crm-stages",   () => api.crm.stages.list());
+  const { data: stages = [],        mutate: mutateStages } = useSWR("crm-stages",   () => api.crm.stages.list());
   const { data: opportunities = [], mutate: mutateOpps  } = useSWR("crm-opps",     () => api.crm.opportunities.list());
   const { data: accounts = []  }                          = useSWR("crm-accounts", () => api.crm.accounts.list(), { refreshInterval: 30_000 });
   const { data: contacts = []  }                          = useSWR("crm-contacts", () => api.crm.contacts.list(), { refreshInterval: 30_000 });
 
   const seedStages = async () => {
     const defaults = [
-      { name: "Prospecting",  order: 0, probability: 10 },
-      { name: "Qualification",order: 1, probability: 20 },
-      { name: "Discovery",    order: 2, probability: 30 },
-      { name: "Proposal",     order: 3, probability: 60 },
-      { name: "Negotiation",  order: 4, probability: 80 },
-      { name: "Closed Won",   order: 5, probability: 100, is_won: true },
-      { name: "Closed Lost",  order: 6, probability: 0,   is_lost: true },
+      { name: "Prospecting",   order: 0, probability: 10 },
+      { name: "Qualification", order: 1, probability: 20 },
+      { name: "Discovery",     order: 2, probability: 30 },
+      { name: "Proposal",      order: 3, probability: 60 },
+      { name: "Negotiation",   order: 4, probability: 80 },
+      { name: "Closed Won",    order: 5, probability: 100, is_won: true },
+      { name: "Closed Lost",   order: 6, probability: 0,   is_lost: true },
     ];
     for (const s of defaults) await api.crm.stages.create(s);
     mutateStages();
@@ -937,7 +997,6 @@ export default function CrmPage() {
 
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
     { id: "pipeline",   label: "Pipeline",   icon: TrendingUp },
-    { id: "companies",  label: "Companies",  icon: Building2  },
     { id: "contacts",   label: "Contacts",   icon: Users      },
     { id: "activities", label: "Activities", icon: Activity   },
   ];
@@ -949,7 +1008,7 @@ export default function CrmPage() {
       <div className="flex flex-col flex-1 min-w-0 overflow-y-auto">
         <div className="p-6 space-y-6 max-w-7xl w-full mx-auto">
 
-          {/* Header */}
+          {/* header */}
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold text-text-1">CRM</h1>
@@ -974,7 +1033,7 @@ export default function CrmPage() {
             </div>
           </div>
 
-          {/* Stats */}
+          {/* stats */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
               { label: "Open Pipeline", value: fmt(openARR, "$"), sub: `${openCount} deals`, icon: TrendingUp,   color: "bg-violet/10 text-violet"  },
@@ -995,7 +1054,7 @@ export default function CrmPage() {
             ))}
           </div>
 
-          {/* Tabs */}
+          {/* tabs */}
           <div className="flex items-center gap-1 border-b border-border">
             {tabs.map((t) => (
               <button
@@ -1014,7 +1073,7 @@ export default function CrmPage() {
             ))}
           </div>
 
-          {/* Tab content */}
+          {/* tab content */}
           <AnimatePresence mode="wait">
             <motion.div
               key={tab}
@@ -1024,8 +1083,7 @@ export default function CrmPage() {
               transition={{ duration: 0.15 }}
             >
               {tab === "pipeline"   && <PipelineKanban stages={stages} opportunities={opportunities} onMoveStage={handleMoveStage} />}
-              {tab === "companies"  && <CompaniesTab accounts={accounts} contacts={contacts} opportunities={opportunities} />}
-              {tab === "contacts"   && <ContactsTab contacts={contacts} accounts={accounts} />}
+              {tab === "contacts"   && <ContactsTab accounts={accounts} contacts={contacts} opportunities={opportunities} />}
               {tab === "activities" && <ActivitiesTab />}
             </motion.div>
           </AnimatePresence>

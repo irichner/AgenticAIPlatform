@@ -307,6 +307,12 @@ export interface Contact {
   seniority: string | null;
   linkedin_url: string | null;
   last_contacted_at: string | null;
+  // enrichment fields
+  department: string | null;
+  location: string | null;
+  buying_role: string | null;
+  lead_source: string | null;
+  notes: string | null;
   created_at: string;
   updated_at: string;
 }
