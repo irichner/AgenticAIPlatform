@@ -38,13 +38,13 @@ export default function AssistantPage() {
 
   const [selectedModelId, setSelectedModelId] = useState<string>("");
   const [zoom, setZoom] = useState<number>(() => {
-    if (typeof window === "undefined") return 100;
-    return Number(localStorage.getItem("assistant-zoom") ?? 100);
+    if (typeof window === "undefined") return 120;
+    return Number(localStorage.getItem("assistant-zoom-v2") ?? 120);
   });
   const changeZoom = (delta: number) => {
     setZoom((z) => {
-      const next = Math.min(150, Math.max(70, z + delta));
-      localStorage.setItem("assistant-zoom", String(next));
+      const next = Math.min(170, Math.max(80, z + delta));
+      localStorage.setItem("assistant-zoom-v2", String(next));
       return next;
     });
   };
