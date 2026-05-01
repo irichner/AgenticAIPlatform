@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Building2, Users, TrendingUp, Plus, Search,
   Mail, Phone, Globe, Target, Activity, MapPin, Briefcase,
-  ChevronUp, ChevronDown, ChevronRight, X, CheckCircle2, AlertCircle, Clock,
+  ChevronUp, ChevronDown, ChevronRight, X, CheckCircle2, AlertCircle, Clock, Copy, Check,
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { api, type Account, type Activity as ActivityType, type Contact, type Opportunity, type OpportunityStage } from "@/lib/api";
@@ -295,6 +295,15 @@ function ContactPanel({ contact, account, activities, onClose }: {
   activities: ActivityType[];
   onClose: () => void;
 }) {
+  const [copied, setCopied] = useState(false);
+
+  const copyEmail = () => {
+    if (!contact.email) return;
+    navigator.clipboard.writeText(contact.email);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const typeIcon: Record<string, React.ElementType> = {
     email: Mail, call: Phone, meeting: Users, note: Activity, task: Target,
   };
@@ -357,9 +366,17 @@ function ContactPanel({ contact, account, activities, onClose }: {
         {/* quick actions */}
         <div className="flex flex-wrap gap-1.5">
           {contact.email && (
-            <a href={`mailto:${contact.email}`} className="text-xs px-2 py-1 rounded-lg bg-violet/10 border border-violet/30 text-violet flex items-center gap-1.5 hover:bg-violet/20 transition-colors">
-              <Mail className="w-3 h-3" /> Email
-            </a>
+            <button
+              onClick={copyEmail}
+              className={cn(
+                "text-xs px-2 py-1 rounded-lg border flex items-center gap-1.5 transition-colors",
+                copied
+                  ? "bg-emerald/10 border-emerald/30 text-emerald"
+                  : "bg-violet/10 border-violet/30 text-violet hover:bg-violet/20",
+              )}
+            >
+              {copied ? <><Check className="w-3 h-3" /> Copied!</> : <><Copy className="w-3 h-3" /> Copy Email</>}
+            </button>
           )}
           {contact.phone && (
             <a href={`tel:${contact.phone}`} className="text-xs px-2 py-1 rounded-lg bg-cyan/10 border border-cyan/30 text-cyan flex items-center gap-1.5 hover:bg-cyan/20 transition-colors">
