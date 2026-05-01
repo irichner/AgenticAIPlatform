@@ -37,10 +37,11 @@ export default function AssistantPage() {
   const enabledModels = allModels.filter((m) => m.enabled);
 
   const [selectedModelId, setSelectedModelId] = useState<string>("");
-  const [zoom, setZoom] = useState<number>(() => {
-    if (typeof window === "undefined") return 120;
-    return Number(localStorage.getItem("assistant-zoom-v2") ?? 120);
-  });
+  const [zoom, setZoom] = useState<number>(120);
+  useEffect(() => {
+    const stored = localStorage.getItem("assistant-zoom-v2");
+    if (stored) setZoom(Number(stored));
+  }, []);
   const changeZoom = (delta: number) => {
     setZoom((z) => {
       const next = Math.min(170, Math.max(80, z + delta));

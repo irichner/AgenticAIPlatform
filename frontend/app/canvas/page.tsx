@@ -424,7 +424,13 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
   const [groupId, setGroupId]         = useState(agent.group_id ?? "");
   const [modelId, setModelId]         = useState(agent.model_id ?? "");
   const [status, setStatus]           = useState(agent.status);
-  const [prompt, setPrompt]           = useState<string>("");
+  const [prompt, setPrompt]           = useState<string>(() => {
+    try {
+      const raw = getOrgItem(orgId, AGENT_FORM_SUBKEY(agent.id));
+      if (raw) { const s = JSON.parse(raw); if (s.prompt !== undefined) return s.prompt as string; }
+    } catch { /* ignore */ }
+    return "";
+  });
   const [mcpIds, setMcpIds]           = useState<string[]>(agent.mcp_servers?.map((s) => s.id) ?? []);
 
   // Inline swarm creation
@@ -445,7 +451,7 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
   const [error, setError]             = useState<string | null>(null);
   const promptFromStorage = useRef(false);
 
-  const { data: versions } = useSWR(
+  const { data: versions, mutate: mutateVersions } = useSWR(
     ["agent-versions", agent.id],
     ([, id]) => api.agents.versions(id),
   );
@@ -482,7 +488,10 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
 
   useEffect(() => {
     if (promptFromStorage.current) return;
-    if (versions && versions.length > 0) setPrompt(versions[0].prompt ?? "");
+    if (versions && versions.length > 0) {
+      setPrompt(versions[0].prompt ?? "");
+      promptFromStorage.current = true; // lock: don't overwrite user edits on future SWR revalidations
+    }
   }, [versions]);
 
   useEffect(() => {
@@ -545,6 +554,7 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
     setSaving(true);
     setError(null);
     try {
+      const savedPrompt = prompt.trim();
       await api.agents.update(agent.id, {
         name: name.trim(),
         description: description.trim() || undefined,
@@ -552,10 +562,18 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
         group_id: groupId || null,
         model_id: modelId || null,
         status,
-        prompt: prompt.trim() || undefined,
+        prompt: savedPrompt || undefined,
         mcp_server_ids: mcpIds,
       });
-      try { removeOrgItem(orgId, AGENT_FORM_SUBKEY(agent.id)); } catch { /* ignore */ }
+      // Write saved state back to storage so it loads immediately on next open.
+      // Simpler and more reliable than trying to prime the SWR cache across unmount.
+      try {
+        setOrgItem(orgId, AGENT_FORM_SUBKEY(agent.id), JSON.stringify({
+          name: name.trim(), description: description.trim() || "",
+          buId, groupId, modelId, status, prompt: savedPrompt, mcpIds,
+        }));
+      } catch { /* ignore */ }
+      mutateVersions(undefined, { revalidate: true });
       onUpdated();
     } catch (err) {
       setError(String(err));
@@ -568,11 +586,15 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
     new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
   return (
-    <div className="w-96 flex flex-col glass border-l border-border h-full">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+    <div className="relative w-[800px] max-h-[88vh] flex flex-col glass border border-border rounded-2xl shadow-2xl overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-        <span className="text-sm font-semibold text-text-1">Agent Properties</span>
-        <button onClick={onClose} className="text-text-3 hover:text-text-2 text-lg leading-none">×</button>
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+        <span className="text-base font-semibold text-text-1">Agent Properties</span>
+        <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg text-text-3 hover:text-text-1 hover:bg-surface-2 transition-colors text-lg leading-none">×</button>
       </div>
 
       {/* Tab bar */}
@@ -582,7 +604,7 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={cn(
-              "flex-1 py-2 text-xs font-medium transition-colors capitalize",
+              "flex-1 py-2.5 text-xs font-medium transition-colors capitalize",
               activeTab === tab
                 ? "text-violet border-b-2 border-violet"
                 : "text-text-3 hover:text-text-2",
@@ -605,7 +627,7 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
         </div>
       )}
 
-      {activeTab === "config" && <div className="flex flex-col gap-4 p-4 flex-1 overflow-y-auto">
+      {activeTab === "config" && <div className="flex flex-col gap-4 px-6 py-5 flex-1 overflow-y-auto">
         <div className="flex flex-col gap-1.5">
           <label className={labelCls}>Name</label>
           <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
@@ -735,25 +757,28 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
           <p className="text-xs text-text-3">Updated {fmt(agent.updated_at)}</p>
         </div>
 
-        {error && <p className="text-xs text-rose-400 bg-rose-500/10 rounded-lg px-3 py-2">{error}</p>}
       </div>}
 
       {activeTab === "config" && (
-        <div className="p-4 border-t border-border shrink-0 flex gap-2">
-          {status === "published" && (
-            <button
-              onClick={() => onRun(agent.id)}
-              className="px-3 py-2 rounded-xl bg-emerald/15 hover:bg-emerald/25 text-emerald text-sm font-medium transition-colors"
-            >
-              Run
+        <div className="flex flex-col gap-2 px-6 py-4 border-t border-border shrink-0">
+          {error && <p className="text-xs text-rose-400 bg-rose-500/10 rounded-lg px-3 py-2">{error}</p>}
+          <div className="flex gap-2">
+            {status === "published" && (
+              <button
+                onClick={() => onRun(agent.id)}
+                className="px-3 py-2 rounded-xl bg-emerald/15 hover:bg-emerald/25 text-emerald text-sm font-medium transition-colors"
+              >
+                Run
+              </button>
+            )}
+            <button onClick={onClose} className="flex-1 py-2 rounded-xl border border-border text-sm text-text-2 hover:text-text-1 hover:bg-surface-2 transition-colors">Cancel</button>
+            <button onClick={handleSave} disabled={saving || !name.trim()} className="flex-1 py-2 rounded-xl bg-violet/20 hover:bg-violet/35 disabled:opacity-40 text-violet text-sm font-medium transition-colors">
+              {saving ? "Saving…" : "Save"}
             </button>
-          )}
-          <button onClick={onClose} className="flex-1 py-2 rounded-xl border border-border text-sm text-text-2 hover:text-text-1 hover:bg-surface-2 transition-colors">Cancel</button>
-          <button onClick={handleSave} disabled={saving || !name.trim()} className="flex-1 py-2 rounded-xl bg-violet/20 hover:bg-violet/35 disabled:opacity-40 text-violet text-sm font-medium transition-colors">
-            {saving ? "Saving…" : "Save"}
-          </button>
+          </div>
         </div>
       )}
+    </div>
     </div>
   );
 }
@@ -910,7 +935,7 @@ function CanvasPageInner() {
         aiModels={aiModels as AiModel[]}
         mcpServers={mcpServers as McpServer[]}
         onClose={() => setRightPanel(null)}
-        onUpdated={() => { refresh(); }}
+        onUpdated={() => { setRightPanel(null); refresh(); }}
         onRun={(id) => setRightPanel({ type: "run", agentId: id })}
       />
     ) : rightPanel?.type === "run" ? (
