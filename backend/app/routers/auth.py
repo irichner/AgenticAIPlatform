@@ -398,3 +398,7 @@ async def _bootstrap_org(db: AsyncSession, user: User) -> None:
 
     db.add(OrgMembership(org_id=org.id, user_id=user.id, role_id=_ORG_OWNER_ROLE_ID))
     db.add(TenantMembership(tenant_id=tenant.id, user_id=user.id, role_id=_TN_ADMIN_ROLE_ID))
+
+    # Auto-seed the owner's email domain so teammates with the same domain auto-join
+    domain = user.email.lower().split("@")[-1]
+    db.add(OrgEmailDomain(org_id=org.id, domain=domain))
