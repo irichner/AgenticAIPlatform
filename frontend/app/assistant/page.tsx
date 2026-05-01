@@ -296,7 +296,7 @@ export default function AssistantPage() {
               transition={{ duration: 0.2 }}
               className="flex flex-col flex-1 overflow-hidden"
             >
-              <div className="flex-1 overflow-y-auto px-6 py-6" style={{ fontSize: `${zoom}%` }}>
+              <div className="flex-1 overflow-y-auto px-6 py-6" style={{ zoom: zoom / 100 }}>
                 <div className="max-w-3xl mx-auto space-y-5">
                   {messages.map((msg) => (
                     <MessageBubble key={msg.id} message={msg} />
