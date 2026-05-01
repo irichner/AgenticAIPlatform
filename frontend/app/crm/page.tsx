@@ -330,7 +330,7 @@ function ContactPanel({ contact, account, activities, onClose }: {
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 20 }}
       transition={{ duration: 0.18 }}
-      className="w-72 shrink-0 glass rounded-2xl overflow-hidden"
+      className="w-72 shrink-0 glass rounded-2xl overflow-hidden sticky top-6 self-start"
     >
       {/* header */}
       <div className="p-4 border-b border-border/50 flex items-start gap-3">
@@ -353,7 +353,7 @@ function ContactPanel({ contact, account, activities, onClose }: {
         </button>
       </div>
 
-      <div className="p-4 space-y-5 overflow-y-auto max-h-[68vh]">
+      <div className="p-4 space-y-5 overflow-y-auto max-h-[calc(100vh-96px)]">
         {/* quick actions */}
         <div className="flex flex-wrap gap-1.5">
           {contact.email && (
