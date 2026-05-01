@@ -21,9 +21,43 @@ from app.models.membership import OrgMembership, TenantMembership
 from app.models.tenant_model import OrgTenant
 from app.models.role import Role
 from app.models.session_model import Session
+from app.models.sso import OrgEmailDomain
 from app.schemas.auth import MagicLinkRequest, MagicLinkResponse, MeOut, MeOrg, MePatch, SessionOut
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+_ORG_MEMBER_ROLE_ID = UUID("00000000-0000-0000-0000-000000000003")
+
+
+async def _domain_auto_join(db: AsyncSession, user: User) -> bool:
+    """If the user's email domain matches a registered OrgEmailDomain, add them as a member.
+
+    Returns True if the user was joined to an org, False otherwise.
+    """
+    domain = user.email.lower().split("@")[-1]
+    result = await db.execute(
+        select(OrgEmailDomain).where(OrgEmailDomain.domain == domain)
+    )
+    domain_record = result.scalar_one_or_none()
+    if domain_record is None:
+        return False
+
+    existing = await db.execute(
+        select(OrgMembership).where(
+            OrgMembership.org_id == domain_record.org_id,
+            OrgMembership.user_id == user.id,
+        )
+    )
+    if existing.scalar_one_or_none() is not None:
+        return False  # already a member
+
+    db.add(OrgMembership(
+        org_id=domain_record.org_id,
+        user_id=user.id,
+        role_id=_ORG_MEMBER_ROLE_ID,
+    ))
+    logger.info("domain_auto_join: added %s to org %s", user.email, domain_record.org_id)
+    return True
 
 _APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:3000")
 # Public URL of the backend API as seen from the user's browser (for email links)
@@ -100,6 +134,9 @@ async def verify_magic_link(
         if not existing:
             db.add(OrgMembership(org_id=ml.org_id, user_id=user.id, role_id=ml.role_id))
 
+    # Domain auto-join: if the user's email domain matches a registered org domain
+    domain_joined = await _domain_auto_join(db, user)
+
     await db.commit()
 
     sid = await create_session(
@@ -119,10 +156,10 @@ async def verify_magic_link(
         domain=_COOKIE_DOMAIN,
         max_age=30 * 24 * 3600,
     )
-    # New users without an org invite go through the onboarding wizard
+    # New users with no org (no invite, no domain match) go through the onboarding wizard
     dest = (
         f"{_APP_BASE_URL}/onboarding"
-        if is_new and ml.purpose != "invite"
+        if is_new and ml.purpose != "invite" and not domain_joined
         else f"{_APP_BASE_URL}/"
     )
     from starlette.responses import RedirectResponse
@@ -313,6 +350,9 @@ async def google_callback(
         if userinfo.get("picture") and not user.avatar_url:
             user.avatar_url = userinfo["picture"]
 
+    # Domain auto-join: if the user's email domain matches a registered org domain
+    domain_joined = await _domain_auto_join(db, user)
+
     await db.commit()
 
     sid = await create_session(
@@ -322,7 +362,7 @@ async def google_callback(
         ip=request.client.host if request.client else None,
     )
 
-    dest = f"{_APP_BASE_URL}/onboarding" if is_new else f"{_APP_BASE_URL}/"
+    dest = f"{_APP_BASE_URL}/onboarding" if is_new and not domain_joined else f"{_APP_BASE_URL}/"
     redirect = RedirectResponse(url=dest, status_code=302)
     redirect.set_cookie(
         key="sid",
