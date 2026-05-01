@@ -208,3 +208,4 @@ app.include_router(platform_settings_router, prefix="/api")
 @app.get("/")
 async def root():
     return {"message": "Lanara API — Revenue Operations OS", "version": "0.2.0"}
+
