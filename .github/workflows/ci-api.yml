@@ -65,4 +65,4 @@ jobs:
         run: |
           curl --silent --show-error --fail --request POST \
             --header "Authorization: Bearer ${{ secrets.COOLIFY_API_TOKEN }}" \
-            "${{ secrets.COOLIFY_API_WEBHOOK_URL }}"
+            "${{ secrets.COOLIFY_WEBHOOK_URL }}"
