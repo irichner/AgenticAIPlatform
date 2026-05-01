@@ -3,6 +3,7 @@ from app.models.business_unit import BusinessUnit
 from app.models.user import User
 from app.models.agent_group import AgentGroup
 from app.models.mcp_server import McpServer
+from app.models.mcp_tool import McpTool
 from app.models.agent import Agent, AgentVersion
 from app.models.run import Run
 from app.models.google_token import GoogleOAuthToken
@@ -38,6 +39,7 @@ __all__ = [
     "User",
     "AgentGroup",
     "McpServer",
+    "McpTool",
     "Agent",
     "AgentVersion",
     "Run",
