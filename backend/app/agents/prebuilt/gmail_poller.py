@@ -288,8 +288,50 @@ async def _poll_user(org_id: str, user_id: str, token_row, db) -> int:
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
+MAX_CONCURRENT_POLLS = int(os.getenv("GMAIL_MAX_CONCURRENT_POLLS", "10"))
+
+
+async def _poll_one(token_row, semaphore: asyncio.Semaphore) -> None:
+    """Poll a single user under the concurrency semaphore."""
+    from app.db.engine import AsyncSessionLocal
+    from app.models.google_token import GoogleOAuthToken
+    from sqlalchemy import select
+
+    if not token_row.org_id or not token_row.user_id:
+        return
+
+    oid = str(token_row.org_id)
+    uid = str(token_row.user_id)
+
+    user_interval = (token_row.poll_interval_minutes * 60) if token_row.poll_interval_minutes else POLL_INTERVAL
+    last_poll = await _get_cursor(oid, uid)
+    now_epoch = int(datetime.now(timezone.utc).timestamp())
+    if (now_epoch - last_poll) < user_interval:
+        print(f"[gmail_poller] org={oid} user={uid} — skipping, next poll in {user_interval - (now_epoch - last_poll)}s")
+        return
+
+    async with semaphore:
+        try:
+            async with AsyncSessionLocal() as db:
+                res = await db.execute(
+                    select(GoogleOAuthToken).where(GoogleOAuthToken.id == token_row.id)
+                )
+                fresh_row = res.scalar_one_or_none()
+                if fresh_row and fresh_row.user_id:
+                    count = await _poll_user(oid, uid, fresh_row, db)
+                    if count:
+                        print(f"[gmail_poller] org={oid} user={uid} ingested {count} new thread(s)")
+        except Exception as e:
+            print(f"[gmail_poller] error polling org={oid} user={uid}: {e}")
+
+
 async def run_gmail_poller_loop() -> None:
-    """Background loop: poll Gmail for all connected users every POLL_INTERVAL seconds."""
+    """Background loop: poll Gmail for all connected users every POLL_INTERVAL seconds.
+
+    Polls up to MAX_CONCURRENT_POLLS users in parallel so that a large user base
+    (e.g. 150 users) completes well within the poll interval instead of running
+    sequentially for 5–15 minutes.
+    """
     from app.db.engine import AsyncSessionLocal
     from app.models.google_token import GoogleOAuthToken
     from sqlalchemy import select
@@ -308,40 +350,10 @@ async def run_gmail_poller_loop() -> None:
                 )
                 token_rows = result.scalars().all()
 
-            print(f"[gmail_poller] found {len(token_rows)} connected Google account(s)")
-            for token_row in token_rows:
-                if not token_row.org_id or not token_row.user_id:
-                    continue
-                try:
-                    oid = str(token_row.org_id)
-                    uid = str(token_row.user_id)
+            print(f"[gmail_poller] found {len(token_rows)} connected Google account(s), max_concurrent={MAX_CONCURRENT_POLLS}")
 
-                    # Respect the user's personal interval — skip if not due yet.
-                    # _get_cursor defaults to 7 days ago on first run, so cursor_age
-                    # starts very large and the first poll always runs.
-                    user_interval = (token_row.poll_interval_minutes * 60) if token_row.poll_interval_minutes else POLL_INTERVAL
-                    last_poll = await _get_cursor(oid, uid)
-                    now_epoch = int(datetime.now(timezone.utc).timestamp())
-                    if (now_epoch - last_poll) < user_interval:
-                        print(f"[gmail_poller] org={oid} user={uid} — skipping, next poll in {user_interval - (now_epoch - last_poll)}s")
-                        continue
-
-                    async with AsyncSessionLocal() as db:
-                        res = await db.execute(
-                            select(GoogleOAuthToken).where(GoogleOAuthToken.id == token_row.id)
-                        )
-                        fresh_row = res.scalar_one_or_none()
-                        if fresh_row and fresh_row.user_id:
-                            count = await _poll_user(
-                                oid,
-                                uid,
-                                fresh_row,
-                                db,
-                            )
-                            if count:
-                                print(f"[gmail_poller] org={oid} user={uid} ingested {count} new thread(s)")
-                except Exception as e:
-                    print(f"[gmail_poller] error polling org={token_row.org_id} user={token_row.user_id}: {e}")
+            semaphore = asyncio.Semaphore(MAX_CONCURRENT_POLLS)
+            await asyncio.gather(*[_poll_one(row, semaphore) for row in token_rows])
 
         except Exception as e:
             print(f"[gmail_poller] loop error: {e}")
