@@ -209,7 +209,7 @@ export default function DashboardPage() {
                       )} />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs text-text-2 font-mono truncate">{run.id.slice(0, 16)}…</p>
-                        {run.input?.message && (
+                        {run.input?.message != null && (
                           <p className="text-xs text-text-3 truncate mt-0.5">
                             {String(run.input.message).slice(0, 60)}
                           </p>

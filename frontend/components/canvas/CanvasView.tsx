@@ -232,8 +232,8 @@ export function CanvasView({ businessUnits, agents, groups, onRun, onSelectAgent
   const orgId = currentOrg?.id ?? null;
   const prevOrgIdRef = useRef<string | null>(null);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
   // Stable ref to saved state so it doesn't trigger re-renders
   const savedState = useRef<CanvasSavedState | null>(null);
@@ -355,7 +355,7 @@ export function CanvasView({ businessUnits, agents, groups, onRun, onSelectAgent
   );
 
   // Persist viewport after pan/zoom ends
-  const handleMoveEnd = useCallback((_: MouseEvent | TouchEvent, viewport: Viewport) => {
+  const handleMoveEnd = useCallback((_: MouseEvent | TouchEvent | null, viewport: Viewport) => {
     const next: CanvasSavedState = {
       positions: savedState.current?.positions ?? {},
       viewport,

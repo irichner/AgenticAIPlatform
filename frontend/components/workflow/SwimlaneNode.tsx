@@ -4,7 +4,7 @@ import { memo } from "react";
 import { NodeResizer, type NodeProps } from "@xyflow/react";
 import { cn } from "@/lib/cn";
 
-export interface SwimlaneData {
+export interface SwimlaneData extends Record<string, unknown> {
   label?: string;
   orientation?: "horizontal" | "vertical";
   color?: string;

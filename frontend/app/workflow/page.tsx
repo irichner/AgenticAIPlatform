@@ -488,7 +488,7 @@ function WorkflowPageInner({ agents, businessUnits }: PageInnerProps) {
         setWorkflowId(null);
         setWorkflowName(safeName || "Imported Workflow");
         setNodes(importedNodes);
-        setEdges(importedEdges.map((e) => ({ ...e, type: "floating", ...EDGE_DEFAULTS })));
+        setEdges(importedEdges.map((e) => ({ ...e, ...EDGE_DEFAULTS })));
         setSelection(null);
         setIsDirty(true);
         historyRef.current = [{ nodes: importedNodes, edges: importedEdges }];
@@ -601,7 +601,7 @@ function WorkflowPageInner({ agents, businessUnits }: PageInnerProps) {
         simulate,
       },
       (ev) => {
-        const execEv = ev as ExecEvent;
+        const execEv = ev as unknown as ExecEvent;
         setExecEvents((prev) => [...prev, execEv]);
 
         if (execEv.type === "node_enter" && execEv.node_id) {
