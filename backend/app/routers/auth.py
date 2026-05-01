@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 import os
+import urllib.parse
 
 logger = logging.getLogger(__name__)
 from datetime import datetime, timezone
@@ -86,17 +87,35 @@ _PREFLIGHT_MINUTES = 15
 
 
 def _public_base_url(request: Request, fallback: str) -> str:
-    """Return the public base URL from Traefik/nginx reverse-proxy headers.
+    """Return the public base URL, trying three sources in order:
 
-    In production, Coolify's Traefik sets X-Forwarded-Proto and
-    X-Forwarded-Host on every inbound request, so we always get the real
-    public hostname regardless of how APP_BASE_URL is configured.
-    Falls back to the env-var value for local dev (no proxy headers).
+    1. Traefik X-Forwarded-Proto + X-Forwarded-Host headers (production, via Next.js proxy)
+    2. GOOGLE_REDIRECT_URI env var — parse scheme+host from it (reliable: Google OAuth
+       won't work at all if this is misconfigured, so it must be correct in production)
+    3. APP_BASE_URL / API_PUBLIC_URL env var (ultimate fallback)
     """
-    proto = request.headers.get("x-forwarded-proto")
-    host = request.headers.get("x-forwarded-host")
-    if proto and host:
-        return f"{proto}://{host}"
+    # 1. Reverse-proxy headers — take only the first value if comma-separated
+    proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
+    host  = (request.headers.get("x-forwarded-host")  or "").split(",")[0].strip()
+    logger.info(
+        "_public_base_url: x-forwarded-proto=%r x-forwarded-host=%r fallback=%r",
+        proto, host, fallback,
+    )
+    if proto and host and "localhost" not in host and host not in ("backend:8000", "backend"):
+        result = f"{proto}://{host}"
+        logger.info("_public_base_url → headers: %r", result)
+        return result
+
+    # 2. Derive from GOOGLE_REDIRECT_URI (only sensible for the auth/google routes)
+    redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "")
+    if redirect_uri:
+        parsed = urllib.parse.urlparse(redirect_uri)
+        if parsed.scheme and parsed.netloc and "localhost" not in parsed.netloc:
+            result = f"{parsed.scheme}://{parsed.netloc}"
+            logger.info("_public_base_url → GOOGLE_REDIRECT_URI: %r", result)
+            return result
+
+    logger.info("_public_base_url → fallback: %r", fallback)
     return fallback
 
 
@@ -398,6 +417,7 @@ async def google_callback(
     )
 
     dest = f"{_base}/onboarding" if is_new and not domain_joined else f"{_base}/"
+    logger.info("google_callback: redirecting to %r (is_new=%s, domain_joined=%s)", dest, is_new, domain_joined)
     redirect = RedirectResponse(url=dest, status_code=302)
     redirect.set_cookie(
         key="sid",
