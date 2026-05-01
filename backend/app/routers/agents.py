@@ -10,7 +10,9 @@ from uuid import UUID
 from app.agents.llm import get_active_llm
 from app.agents.prebuilt import PREBUILT_META, list_prebuilt_types
 from app.dependencies import get_db
-from app.auth.dependencies import resolve_org
+from app.auth.dependencies import require_org_permission
+from app.auth.context import AuthContext
+from app.auth.permissions import P
 from app.models.agent import Agent, AgentVersion
 from app.models.business_unit import BusinessUnit
 from app.models.mcp_server import McpServer
@@ -29,17 +31,22 @@ async def _load_agent(db: AsyncSession, agent_id: UUID) -> Agent | None:
     return result.scalar_one_or_none()
 
 
+def _owns_or_admin(agent: Agent, ctx: AuthContext) -> bool:
+    """True if the user created the agent or has wildcard/admin permissions."""
+    return "*" in ctx.permissions or agent.created_by == ctx.user.id
+
+
 @router.get("", response_model=list[AgentOut])
 async def list_agents(
     business_unit_id: UUID | None = None,
-    org_id: UUID = Depends(resolve_org),
+    ctx: AuthContext = Depends(require_org_permission(P.AGENT_READ)),
     db: AsyncSession = Depends(get_db),
 ):
     stmt = (
         select(Agent)
         .join(BusinessUnit, Agent.business_unit_id == BusinessUnit.id)
         .options(selectinload(Agent.mcp_servers).selectinload(McpServer.tools))
-        .where(BusinessUnit.org_id == org_id)
+        .where(BusinessUnit.org_id == ctx.scope_id)
     )
     if business_unit_id:
         stmt = stmt.where(Agent.business_unit_id == business_unit_id)
@@ -56,10 +63,10 @@ class GenerateInstructionsRequest(BaseModel):
 @router.post("/generate-instructions")
 async def generate_agent_instructions(
     payload: GenerateInstructionsRequest,
-    org_id: UUID = Depends(resolve_org),
+    ctx: AuthContext = Depends(require_org_permission(P.AGENT_CREATE)),
     db: AsyncSession = Depends(get_db),
 ):
-    llm = await get_active_llm(db, org_id=org_id)
+    llm = await get_active_llm(db, org_id=ctx.scope_id)
 
     context_lines = [f"Agent name: {payload.name}"]
     if payload.description:
@@ -91,11 +98,14 @@ async def generate_agent_instructions(
 @router.post("", response_model=AgentOut, status_code=status.HTTP_201_CREATED)
 async def create_agent(
     payload: AgentCreate,
-    org_id: UUID = Depends(resolve_org),
+    ctx: AuthContext = Depends(require_org_permission(P.AGENT_CREATE)),
     db: AsyncSession = Depends(get_db),
 ):
     bu_result = await db.execute(
-        select(BusinessUnit).where(BusinessUnit.id == payload.business_unit_id, BusinessUnit.org_id == org_id)
+        select(BusinessUnit).where(
+            BusinessUnit.id == payload.business_unit_id,
+            BusinessUnit.org_id == ctx.scope_id,
+        )
     )
     if bu_result.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Business unit not found")
@@ -107,6 +117,7 @@ async def create_agent(
         status=payload.status or "draft",
         group_id=payload.group_id,
         model_id=payload.model_id,
+        created_by=ctx.user.id,
     )
     db.add(agent)
     await db.flush()
@@ -115,7 +126,7 @@ async def create_agent(
         mcp_result = await db.execute(
             select(McpServer).where(
                 McpServer.id.in_(payload.mcp_server_ids),
-                McpServer.org_id == org_id,
+                McpServer.org_id == ctx.scope_id,
             )
         )
         agent.mcp_servers = list(mcp_result.scalars().all())
@@ -136,14 +147,14 @@ async def create_agent(
 @router.get("/{agent_id}", response_model=AgentOut)
 async def get_agent(
     agent_id: UUID,
-    org_id: UUID = Depends(resolve_org),
+    ctx: AuthContext = Depends(require_org_permission(P.AGENT_READ)),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(Agent)
         .join(BusinessUnit, Agent.business_unit_id == BusinessUnit.id)
         .options(selectinload(Agent.mcp_servers).selectinload(McpServer.tools))
-        .where(Agent.id == agent_id, BusinessUnit.org_id == org_id)
+        .where(Agent.id == agent_id, BusinessUnit.org_id == ctx.scope_id)
     )
     agent = result.scalar_one_or_none()
     if agent is None:
@@ -155,23 +166,25 @@ async def get_agent(
 async def update_agent(
     agent_id: UUID,
     payload: AgentUpdate,
-    org_id: UUID = Depends(resolve_org),
+    ctx: AuthContext = Depends(require_org_permission(P.AGENT_UPDATE)),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(Agent)
         .join(BusinessUnit, Agent.business_unit_id == BusinessUnit.id)
         .options(selectinload(Agent.mcp_servers).selectinload(McpServer.tools))
-        .where(Agent.id == agent_id, BusinessUnit.org_id == org_id)
+        .where(Agent.id == agent_id, BusinessUnit.org_id == ctx.scope_id)
     )
     agent = result.scalar_one_or_none()
     if agent is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
+    if not _owns_or_admin(agent, ctx):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only edit your own agents")
+
     update_data = payload.model_dump(exclude_unset=True)
     prompt = update_data.pop("prompt", None)
 
-    # Handle MCP assignment separately — not a direct column
     if "mcp_server_ids" in update_data:
         mcp_server_ids = update_data.pop("mcp_server_ids")
         if mcp_server_ids is not None:
@@ -179,7 +192,7 @@ async def update_agent(
                 mcp_result = await db.execute(
                     select(McpServer).where(
                         McpServer.id.in_(mcp_server_ids),
-                        McpServer.org_id == org_id,
+                        McpServer.org_id == ctx.scope_id,
                     )
                 )
                 agent.mcp_servers = list(mcp_result.scalars().all())
@@ -210,17 +223,20 @@ async def update_agent(
 @router.post("/{agent_id}/publish", response_model=AgentOut)
 async def publish_agent(
     agent_id: UUID,
-    org_id: UUID = Depends(resolve_org),
+    ctx: AuthContext = Depends(require_org_permission(P.AGENT_UPDATE)),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(Agent)
         .join(BusinessUnit, Agent.business_unit_id == BusinessUnit.id)
-        .where(Agent.id == agent_id, BusinessUnit.org_id == org_id)
+        .where(Agent.id == agent_id, BusinessUnit.org_id == ctx.scope_id)
     )
     agent = result.scalar_one_or_none()
     if agent is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+    if not _owns_or_admin(agent, ctx):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only publish your own agents")
 
     agent.status = "published"
     await db.commit()
@@ -231,14 +247,13 @@ async def publish_agent(
 @router.get("/{agent_id}/versions", response_model=list[AgentVersionOut])
 async def list_agent_versions(
     agent_id: UUID,
-    org_id: UUID = Depends(resolve_org),
+    ctx: AuthContext = Depends(require_org_permission(P.AGENT_READ)),
     db: AsyncSession = Depends(get_db),
 ):
-    # Verify ownership first
     owner = await db.execute(
         select(Agent)
         .join(BusinessUnit, Agent.business_unit_id == BusinessUnit.id)
-        .where(Agent.id == agent_id, BusinessUnit.org_id == org_id)
+        .where(Agent.id == agent_id, BusinessUnit.org_id == ctx.scope_id)
     )
     if not owner.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
@@ -253,17 +268,21 @@ async def list_agent_versions(
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_agent(
     agent_id: UUID,
-    org_id: UUID = Depends(resolve_org),
+    ctx: AuthContext = Depends(require_org_permission(P.AGENT_DELETE)),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(Agent)
         .join(BusinessUnit, Agent.business_unit_id == BusinessUnit.id)
-        .where(Agent.id == agent_id, BusinessUnit.org_id == org_id)
+        .where(Agent.id == agent_id, BusinessUnit.org_id == ctx.scope_id)
     )
     agent = result.scalar_one_or_none()
     if agent is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+    if not _owns_or_admin(agent, ctx):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only delete your own agents")
+
     await db.delete(agent)
     await db.commit()
 
@@ -279,7 +298,7 @@ async def list_prebuilt_agent_types():
 async def create_prebuilt_agent(
     agent_type: str,
     business_unit_id: UUID,
-    org_id: UUID = Depends(resolve_org),
+    ctx: AuthContext = Depends(require_org_permission(P.AGENT_CREATE)),
     db: AsyncSession = Depends(get_db),
 ):
     if agent_type not in list_prebuilt_types():
@@ -289,7 +308,10 @@ async def create_prebuilt_agent(
         )
 
     bu_res = await db.execute(
-        select(BusinessUnit).where(BusinessUnit.id == business_unit_id, BusinessUnit.org_id == org_id)
+        select(BusinessUnit).where(
+            BusinessUnit.id == business_unit_id,
+            BusinessUnit.org_id == ctx.scope_id,
+        )
     )
     if bu_res.scalar_one_or_none() is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Business unit not found")
@@ -300,6 +322,7 @@ async def create_prebuilt_agent(
         name=meta["name"],
         description=f"Pre-built {meta['name']} agent.",
         status="published",
+        created_by=ctx.user.id,
     )
     db.add(agent)
     await db.flush()

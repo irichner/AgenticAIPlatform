@@ -5,7 +5,9 @@ from sqlalchemy import select
 from uuid import UUID
 
 from app.dependencies import get_db
-from app.auth.dependencies import resolve_org
+from app.auth.dependencies import require_org_permission
+from app.auth.context import AuthContext
+from app.auth.permissions import P
 from app.models.workflow import Workflow, WorkflowVersion
 from app.schemas.workflow import (
     WorkflowCreate,
@@ -19,14 +21,18 @@ from app.schemas.workflow import (
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
 
+def _owns_or_admin(workflow: Workflow, ctx: AuthContext) -> bool:
+    return "*" in ctx.permissions or workflow.created_by == ctx.user.id
+
+
 @router.get("", response_model=list[WorkflowListItem])
 async def list_workflows(
-    org_id: UUID = Depends(resolve_org),
+    ctx: AuthContext = Depends(require_org_permission(P.WORKFLOW_READ)),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
         select(Workflow)
-        .where(Workflow.org_id == org_id)
+        .where(Workflow.org_id == ctx.scope_id)
         .order_by(Workflow.updated_at.desc())
     )
     return result.scalars().all()
@@ -35,10 +41,10 @@ async def list_workflows(
 @router.post("", response_model=WorkflowOut, status_code=status.HTTP_201_CREATED)
 async def create_workflow(
     payload: WorkflowCreate,
-    org_id: UUID = Depends(resolve_org),
+    ctx: AuthContext = Depends(require_org_permission(P.WORKFLOW_CREATE)),
     db: AsyncSession = Depends(get_db),
 ):
-    wf = Workflow(org_id=org_id, name=payload.name, graph=payload.graph)
+    wf = Workflow(org_id=ctx.scope_id, name=payload.name, graph=payload.graph, created_by=ctx.user.id)
     db.add(wf)
     await db.commit()
     await db.refresh(wf)
@@ -48,11 +54,11 @@ async def create_workflow(
 @router.get("/{workflow_id}", response_model=WorkflowOut)
 async def get_workflow(
     workflow_id: UUID,
-    org_id: UUID = Depends(resolve_org),
+    ctx: AuthContext = Depends(require_org_permission(P.WORKFLOW_READ)),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Workflow).where(Workflow.id == workflow_id, Workflow.org_id == org_id)
+        select(Workflow).where(Workflow.id == workflow_id, Workflow.org_id == ctx.scope_id)
     )
     wf = result.scalar_one_or_none()
     if wf is None:
@@ -64,15 +70,18 @@ async def get_workflow(
 async def update_workflow(
     workflow_id: UUID,
     payload: WorkflowUpdate,
-    org_id: UUID = Depends(resolve_org),
+    ctx: AuthContext = Depends(require_org_permission(P.WORKFLOW_UPDATE)),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Workflow).where(Workflow.id == workflow_id, Workflow.org_id == org_id)
+        select(Workflow).where(Workflow.id == workflow_id, Workflow.org_id == ctx.scope_id)
     )
     wf = result.scalar_one_or_none()
     if wf is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+
+    if not _owns_or_admin(wf, ctx):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only edit your own workflows")
 
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(wf, field, value)
@@ -85,15 +94,19 @@ async def update_workflow(
 @router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_workflow(
     workflow_id: UUID,
-    org_id: UUID = Depends(resolve_org),
+    ctx: AuthContext = Depends(require_org_permission(P.WORKFLOW_DELETE)),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Workflow).where(Workflow.id == workflow_id, Workflow.org_id == org_id)
+        select(Workflow).where(Workflow.id == workflow_id, Workflow.org_id == ctx.scope_id)
     )
     wf = result.scalar_one_or_none()
     if wf is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+
+    if not _owns_or_admin(wf, ctx):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only delete your own workflows")
+
     await db.delete(wf)
     await db.commit()
 
@@ -101,12 +114,11 @@ async def delete_workflow(
 @router.get("/{workflow_id}/versions", response_model=list[WorkflowVersionOut])
 async def list_versions(
     workflow_id: UUID,
-    org_id: UUID = Depends(resolve_org),
+    ctx: AuthContext = Depends(require_org_permission(P.WORKFLOW_READ)),
     db: AsyncSession = Depends(get_db),
 ):
-    # Verify ownership
     wf = await db.execute(
-        select(Workflow).where(Workflow.id == workflow_id, Workflow.org_id == org_id)
+        select(Workflow).where(Workflow.id == workflow_id, Workflow.org_id == ctx.scope_id)
     )
     if not wf.scalar_one_or_none():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
@@ -126,15 +138,18 @@ async def list_versions(
 async def save_version(
     workflow_id: UUID,
     payload: WorkflowVersionCreate,
-    org_id: UUID = Depends(resolve_org),
+    ctx: AuthContext = Depends(require_org_permission(P.WORKFLOW_UPDATE)),
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(Workflow).where(Workflow.id == workflow_id, Workflow.org_id == org_id)
+        select(Workflow).where(Workflow.id == workflow_id, Workflow.org_id == ctx.scope_id)
     )
     wf = result.scalar_one_or_none()
     if wf is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+
+    if not _owns_or_admin(wf, ctx):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only version your own workflows")
 
     snap = WorkflowVersion(
         workflow_id=wf.id,
@@ -159,15 +174,18 @@ async def save_version(
 async def restore_version(
     workflow_id: UUID,
     version_id: UUID,
-    org_id: UUID = Depends(resolve_org),
+    ctx: AuthContext = Depends(require_org_permission(P.WORKFLOW_UPDATE)),
     db: AsyncSession = Depends(get_db),
 ):
     wf_result = await db.execute(
-        select(Workflow).where(Workflow.id == workflow_id, Workflow.org_id == org_id)
+        select(Workflow).where(Workflow.id == workflow_id, Workflow.org_id == ctx.scope_id)
     )
     wf = wf_result.scalar_one_or_none()
     if wf is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+
+    if not _owns_or_admin(wf, ctx):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only restore your own workflows")
 
     ver_result = await db.execute(
         select(WorkflowVersion)

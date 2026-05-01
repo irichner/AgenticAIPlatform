@@ -32,7 +32,9 @@ import { useAuth } from "@/contexts/auth";
 
 type CreateAction = "agent" | "workflow" | "chat" | null;
 
-const navItems: { href: string; label: string; icon: React.ElementType; createAction: CreateAction }[] = [
+type NavItem = { href: string; label: string; icon: React.ElementType; createAction: CreateAction; adminOnly?: boolean };
+
+const navItems: NavItem[] = [
   { href: "/assistant",    label: "Assistant",    icon: Sparkles,       createAction: "chat"     },
   { href: "/dashboard",    label: "Dashboard",    icon: House,          createAction: null       },
   { href: "/canvas",       label: "Agents",       icon: Workflow,       createAction: "agent"    },
@@ -44,7 +46,7 @@ const navItems: { href: string; label: string; icon: React.ElementType; createAc
   { href: "/coaching",     label: "AI Coach",     icon: Brain,          createAction: null       },
   { href: "/integrations", label: "Integrations", icon: Plug,           createAction: null       },
   { href: "/approvals",    label: "Approvals",    icon: ShieldCheck,    createAction: null       },
-  { href: "/admin",        label: "Admin",        icon: Settings2,      createAction: null       },
+  { href: "/admin",        label: "Admin",        icon: Settings2,      createAction: null,      adminOnly: true },
 ];
 
 export function Sidebar() {
@@ -53,7 +55,7 @@ export function Sidebar() {
   const { threads, activeThreadId, startNewChat, loadThread, deleteThread } = useThreads();
   const [collapsed, setCollapsed] = useState(false);
   const { appName, appIcon } = useBranding();
-  const { user, currentOrg, setCurrentOrg, logout } = useAuth();
+  const { user, currentOrg, setCurrentOrg, logout, can } = useAuth();
   const [orgPickerOpen, setOrgPickerOpen] = useState(false);
   const orgPickerRef = useRef<HTMLDivElement>(null);
 
@@ -108,7 +110,7 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav className="flex flex-col gap-0.5 p-2 shrink-0">
-        {navItems.map(({ href, label, icon: Icon, createAction }) => (
+        {navItems.filter(({ adminOnly }) => !adminOnly || can("org.settings.read")).map(({ href, label, icon: Icon, createAction }) => (
           <div key={href}>
             <div className="flex items-center gap-0.5">
               <Link

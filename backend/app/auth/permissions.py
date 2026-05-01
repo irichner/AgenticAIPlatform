@@ -47,3 +47,20 @@ class P:
     AGENT_DB_POLICY_READ   = "agent.db_policy.read"
     AGENT_DB_POLICY_WRITE  = "agent.db_policy.write"
     AGENT_DB_POLICY_DELETE = "agent.db_policy.delete"
+
+    # ── Agent CRUD ────────────────────────────────────────────────────────
+    AGENT_CREATE = "agent.create"
+    AGENT_READ   = "agent.read"
+    AGENT_UPDATE = "agent.update"
+    AGENT_DELETE = "agent.delete"
+
+    # ── Workflow CRUD ─────────────────────────────────────────────────────
+    WORKFLOW_CREATE = "workflow.create"
+    WORKFLOW_READ   = "workflow.read"
+    WORKFLOW_UPDATE = "workflow.update"
+    WORKFLOW_DELETE = "workflow.delete"
+
+    # ── Approvals ─────────────────────────────────────────────────────────
+    APPROVAL_READ   = "approval.read"
+    APPROVAL_UPDATE = "approval.update"
+    APPROVAL_DELETE = "approval.delete"

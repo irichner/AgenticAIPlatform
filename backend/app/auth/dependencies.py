@@ -58,6 +58,34 @@ async def resolve_org(
     return org_id
 
 
+def require_org_permission(permission: str):
+    """Like require_permission but reads org_id from X-Org-Id header (not path params).
+
+    Use this for routes that scope by header rather than a /{org_id} path segment.
+    Returns AuthContext. resolve_org already validates membership, this adds the
+    per-permission gate on top.
+    """
+    async def dep(
+        request: Request,
+        user: User = Depends(current_user),
+        org_id: UUID = Depends(resolve_org),
+        db: AsyncSession = Depends(get_db),
+    ) -> AuthContext:
+        perms = await get_user_permissions(db, user.id, "org", org_id)
+        if not has_permission(perms, permission):
+            raise HTTPException(403, f"Missing permission: {permission}")
+        return AuthContext(
+            user=user,
+            scope="org",
+            scope_id=org_id,
+            permissions=perms,
+            last_permission=permission,
+            ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+    return dep
+
+
 def require_permission(permission: str, scope: Literal["org", "tenant"] = "org"):
     """FastAPI dependency factory.  Gates a route on a named permission."""
 
