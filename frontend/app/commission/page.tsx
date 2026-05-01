@@ -385,7 +385,7 @@ export default function CommissionPage() {
                 ].map((row) => (
                   <div key={row.label} className="flex items-center justify-between py-1 border-b border-border last:border-0">
                     <span className="text-sm text-text-2">{row.label}</span>
-                    <span className={cn("text-sm font-medium", (row as any).highlight ? "text-emerald" : "text-text-1")}>{row.value}</span>
+                    <span className={cn("text-sm font-medium", ("highlight" in row && row.highlight) ? "text-emerald" : "text-text-1")}>{row.value}</span>
                   </div>
                 ))}
                 <div className="flex items-center justify-between pt-2">

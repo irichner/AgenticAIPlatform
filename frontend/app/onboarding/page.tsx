@@ -318,7 +318,7 @@ function StepFirstTenant({
                      focus:ring-violet/50 focus:border-violet transition"
         />
         <p className="mt-1 text-xs text-text-3">
-          Common examples: "Global", "North America", "EMEA", or your company name.
+          Common examples: &quot;Global&quot;, &quot;North America&quot;, &quot;EMEA&quot;, or your company name.
         </p>
       </div>
     </div>
@@ -522,7 +522,7 @@ export default function OnboardingPage() {
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-2xl font-semibold text-text-1 tracking-tight">Lanara</h1>
-          <p className="text-sm text-text-3 mt-1">Let's get your account set up</p>
+          <p className="text-sm text-text-3 mt-1">Let&apos;s get your account set up</p>
         </div>
 
         <div className="bg-surface-1 rounded-xl border border-border p-6 shadow-sm">
