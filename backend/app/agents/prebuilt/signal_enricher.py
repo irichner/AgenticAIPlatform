@@ -18,7 +18,6 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.db.engine import AsyncSessionLocal
 from app.models.activity import Activity

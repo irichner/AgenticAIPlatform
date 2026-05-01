@@ -15,7 +15,6 @@ HIL: when a graph interrupt is detected the run status becomes
 from __future__ import annotations
 
 import json
-import os
 import uuid
 
 from datetime import datetime, timezone
@@ -219,7 +218,7 @@ async def execute_run(run_id: str) -> None:
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
                     "total_tokens": input_tokens + output_tokens,
-                    "estimated_cost_usd": round(_estimate_cost(ANTHROPIC_MODEL, input_tokens, output_tokens), 6),
+                    "estimated_cost_usd": round(_estimate_cost(None, input_tokens, output_tokens), 6),
                 },
             }
             run.completed_at = datetime.now(timezone.utc)
@@ -360,7 +359,7 @@ async def execute_run_resume(
                     "input_tokens": input_tokens,
                     "output_tokens": output_tokens,
                     "total_tokens": input_tokens + output_tokens,
-                    "estimated_cost_usd": round(_estimate_cost(ANTHROPIC_MODEL, input_tokens, output_tokens), 6),
+                    "estimated_cost_usd": round(_estimate_cost(None, input_tokens, output_tokens), 6),
                 },
             }
             run.completed_at = datetime.now(timezone.utc)
