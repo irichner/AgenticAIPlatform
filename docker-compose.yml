@@ -51,6 +51,7 @@ services:
       start_period: 30s
 
   backend:
+    image: ghcr.io/irichner/lanara-api:main
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -111,6 +112,7 @@ services:
       - backend
 
   frontend:
+    image: ghcr.io/irichner/lanara-web:main
     build:
       context: ./frontend
       dockerfile: Dockerfile
