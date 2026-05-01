@@ -97,13 +97,13 @@ def _public_base_url(request: Request, fallback: str) -> str:
     # 1. Reverse-proxy headers — take only the first value if comma-separated
     proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip()
     host  = (request.headers.get("x-forwarded-host")  or "").split(",")[0].strip()
-    logger.info(
+    logger.warning(
         "_public_base_url: x-forwarded-proto=%r x-forwarded-host=%r fallback=%r",
         proto, host, fallback,
     )
     if proto and host and "localhost" not in host and host not in ("backend:8000", "backend"):
         result = f"{proto}://{host}"
-        logger.info("_public_base_url → headers: %r", result)
+        logger.warning("_public_base_url → headers: %r", result)
         return result
 
     # 2. Derive from GOOGLE_REDIRECT_URI (only sensible for the auth/google routes)
@@ -112,10 +112,10 @@ def _public_base_url(request: Request, fallback: str) -> str:
         parsed = urllib.parse.urlparse(redirect_uri)
         if parsed.scheme and parsed.netloc and "localhost" not in parsed.netloc:
             result = f"{parsed.scheme}://{parsed.netloc}"
-            logger.info("_public_base_url → GOOGLE_REDIRECT_URI: %r", result)
+            logger.warning("_public_base_url → GOOGLE_REDIRECT_URI: %r", result)
             return result
 
-    logger.info("_public_base_url → fallback: %r", fallback)
+    logger.warning("_public_base_url → fallback: %r", fallback)
     return fallback
 
 
@@ -417,7 +417,7 @@ async def google_callback(
     )
 
     dest = f"{_base}/onboarding" if is_new and not domain_joined else f"{_base}/"
-    logger.info("google_callback: redirecting to %r (is_new=%s, domain_joined=%s)", dest, is_new, domain_joined)
+    logger.warning("google_callback: redirecting to %r (is_new=%s, domain_joined=%s)", dest, is_new, domain_joined)
     redirect = RedirectResponse(url=dest, status_code=302)
     redirect.set_cookie(
         key="sid",
