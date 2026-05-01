@@ -9,7 +9,7 @@ import {
 } from "react";
 import useSWR from "swr";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, ArrowRight, Bot, Check } from "lucide-react";
+import { Sparkles, ArrowRight, Bot, Check, ZoomIn, ZoomOut } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { useThreads, type ChatMessage } from "@/components/shared/ThreadsProvider";
 import { useBranding } from "@/components/shared/BrandingProvider";
@@ -37,6 +37,17 @@ export default function AssistantPage() {
   const enabledModels = allModels.filter((m) => m.enabled);
 
   const [selectedModelId, setSelectedModelId] = useState<string>("");
+  const [zoom, setZoom] = useState<number>(() => {
+    if (typeof window === "undefined") return 100;
+    return Number(localStorage.getItem("assistant-zoom") ?? 100);
+  });
+  const changeZoom = (delta: number) => {
+    setZoom((z) => {
+      const next = Math.min(150, Math.max(70, z + delta));
+      localStorage.setItem("assistant-zoom", String(next));
+      return next;
+    });
+  };
 
   // Load last-used model from org-scoped storage when org is known
   useEffect(() => {
@@ -207,6 +218,25 @@ export default function AssistantPage() {
         <div className="flex items-center gap-2 px-6 h-14 border-b border-border shrink-0">
           <Sparkles className="w-4 h-4 text-violet" />
           <span className="text-sm font-semibold text-text-1">Assistant</span>
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              onClick={() => changeZoom(-10)}
+              disabled={zoom <= 70}
+              className="p-1.5 rounded hover:bg-surface-1 text-text-3 hover:text-text-1 disabled:opacity-30 transition-colors"
+              title="Zoom out"
+            >
+              <ZoomOut className="w-4 h-4" />
+            </button>
+            <span className="text-xs text-text-3 w-10 text-center tabular-nums">{zoom}%</span>
+            <button
+              onClick={() => changeZoom(10)}
+              disabled={zoom >= 150}
+              className="p-1.5 rounded hover:bg-surface-1 text-text-3 hover:text-text-1 disabled:opacity-30 transition-colors"
+              title="Zoom in"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         <AnimatePresence mode="wait">
@@ -240,7 +270,7 @@ export default function AssistantPage() {
                 onKeyDown={handleKeyDown}
                 onSubmit={submit}
                 loading={loading}
-                className="w-full max-w-2xl"
+                className="w-full max-w-3xl"
                 enabledModels={enabledModels}
                 activeModelId={activeModelId}
                 onModelChange={handleModelChange}
@@ -266,8 +296,8 @@ export default function AssistantPage() {
               transition={{ duration: 0.2 }}
               className="flex flex-col flex-1 overflow-hidden"
             >
-              <div className="flex-1 overflow-y-auto px-6 py-6">
-                <div className="max-w-2xl mx-auto space-y-5">
+              <div className="flex-1 overflow-y-auto px-6 py-6" style={{ fontSize: `${zoom}%` }}>
+                <div className="max-w-3xl mx-auto space-y-5">
                   {messages.map((msg) => (
                     <MessageBubble key={msg.id} message={msg} />
                   ))}
@@ -290,7 +320,7 @@ export default function AssistantPage() {
                   onKeyDown={handleKeyDown}
                   onSubmit={submit}
                   loading={loading}
-                  className="w-full max-w-2xl mx-auto"
+                  className="w-full max-w-3xl mx-auto"
                   enabledModels={enabledModels}
                   activeModelId={activeModelId}
                   onModelChange={handleModelChange}
