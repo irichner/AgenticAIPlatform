@@ -266,12 +266,10 @@ async def delete_ai_model(
                 resp = await client.request("DELETE", f"{ollama_url}/api/delete", json={"name": model.model_id})
                 if resp.status_code not in (200, 404):
                     resp.raise_for_status()
-        except httpx.TimeoutException:
-            raise HTTPException(status_code=502, detail="Timed out connecting to Ollama — is it running?")
-        except httpx.ConnectError:
-            raise HTTPException(status_code=502, detail="Could not connect to Ollama — check the service is running")
-        except httpx.HTTPStatusError as exc:
-            raise HTTPException(status_code=502, detail=f"Ollama returned {exc.response.status_code}")
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.HTTPStatusError) as exc:
+            # Ollama unreachable or failed — log and continue so the DB record is
+            # still removed. Model files can be cleaned up manually if needed.
+            print(f"[ai_models] uninstall warning for {model.model_id}: {exc}")
 
     await db.delete(model)
     await db.commit()
