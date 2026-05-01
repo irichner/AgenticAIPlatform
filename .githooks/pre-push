@@ -1,0 +1,21 @@
+#!/bin/sh
+# Runs ruff against backend/app/ before every push.
+# Requires Docker to be running.
+
+if ! git diff --name-only HEAD@{u} HEAD 2>/dev/null | grep -q "^backend/"; then
+  # No backend files changed — skip
+  exit 0
+fi
+
+echo "Running ruff lint check on backend..."
+docker run --rm \
+  -v "$(git rev-parse --show-toplevel)/backend:/app" \
+  ghcr.io/astral-sh/ruff:latest check /app/app/
+
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "Ruff lint failed. Fix the errors above before pushing."
+  exit 1
+fi
+
+echo "Ruff: all checks passed."
