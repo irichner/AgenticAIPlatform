@@ -183,6 +183,11 @@ export default function AssistantPage() {
       },
       activeModelId,
       appName,
+      120_000,
+      () => {
+        rawRef.current = "";
+        parseRaw("");
+      },
     );
   };
 

@@ -24,12 +24,30 @@ logger = logging.getLogger(__name__)
 
 
 def _is_raw_tool_call(content: str) -> bool:
-    """Return True when a model outputs a JSON tool-call as text instead of structured tool_calls."""
+    """Return True when a model outputs a JSON tool-call as text instead of structured tool_calls.
+
+    Handles two cases:
+    - Full text is the JSON object (clean hallucination)
+    - JSON is at the start followed by garbage text (1B models that append random text after)
+    """
     text = content.strip()
-    if not (text.startswith("{") and text.endswith("}")):
+    if not text.startswith("{"):
+        return False
+    # Walk to find where the top-level JSON object closes
+    depth = 0
+    end = -1
+    for i, ch in enumerate(text):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+    if end == -1:
         return False
     try:
-        obj = json.loads(text)
+        obj = json.loads(text[: end + 1])
         return isinstance(obj, dict) and "name" in obj and ("parameters" in obj or "arguments" in obj)
     except Exception:
         return False
@@ -439,6 +457,7 @@ async def ask_lanara(
                     and bound is not llm
                 ):
                     logger.warning("Model returned raw tool-call JSON — retrying without tools")
+                    yield f"data: {json.dumps({'clear': True})}\n\n"
                     bound = llm
                     full_response = None
                     accumulated_text = ""

@@ -648,6 +648,7 @@ export const api = {
     modelId?: string,
     appName?: string,
     timeoutMs = 120_000,
+    onClear?: () => void,
   ): Promise<void> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -700,6 +701,7 @@ export const api = {
           try {
             const parsed = JSON.parse(data);
             if (parsed.error) { clearTimeout(timer); onError(parsed.error); return; }
+            if (parsed.clear) { onClear?.(); continue; }
             if (parsed.content) onChunk(parsed.content);
           } catch { /* skip malformed */ }
         }
