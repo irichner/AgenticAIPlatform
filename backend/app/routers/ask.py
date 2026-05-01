@@ -394,8 +394,10 @@ async def ask_lanara(
                     err_str = str(exc)
                     _tool_incompatible = (
                         "does not support tools" in err_str
+                        or "tool calling" in err_str.lower()
                         or "Multi Agent requests are not allowed" in err_str
                         or "tool_choice" in err_str
+                        or "tool use" in err_str.lower()
                     )
                     if _tool_incompatible and bound is not llm:
                         # Model rejects tool-bound call — retry with bare LLM
