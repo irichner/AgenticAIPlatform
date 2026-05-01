@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, AsyncGenerator
+from typing import AsyncGenerator
 
-from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -13,7 +13,6 @@ from sqlalchemy.orm import selectinload
 from app.agents.llm import get_active_llm, get_llm_by_id
 from app.core.mcp_client import get_mcp_tools
 from app.models.agent import Agent, AgentVersion
-from app.models.mcp_server import McpServer
 
 logger = logging.getLogger(__name__)
 
@@ -186,10 +185,10 @@ async def _pick_gateway_branch(
     """Use the LLM to decide which outgoing edge to follow for an exclusive gateway."""
     if not successors:
         return ""
-    labeled = [(t, l) for t, l in successors if l.strip()]
+    labeled = [(t, lbl) for t, lbl in successors if lbl.strip()]
     if not labeled:
         return successors[0][0]
-    conditions = "\n".join(f"- {l}" for _, l in labeled)
+    conditions = "\n".join(f"- {lbl}" for _, lbl in labeled)
     prompt = (
         f"Given this context (last output):\n\n{context[:2000]}\n\n"
         f"Which condition best matches? Pick exactly one from:\n{conditions}\n\n"

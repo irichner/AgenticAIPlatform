@@ -37,7 +37,7 @@ async def list_roles(
 ) -> list[RoleOut]:
     result = await db.execute(
         select(Role).where(
-            (Role.org_id == ctx.scope_id) | (Role.is_system == True)
+            (Role.org_id == ctx.scope_id) | Role.is_system
         ).order_by(Role.scope, Role.name)
     )
     roles = result.scalars().all()
@@ -56,7 +56,7 @@ async def create_role(
     # Enforce custom role cap
     count_result = await db.execute(
         select(func.count()).select_from(Role)
-        .where(Role.org_id == ctx.scope_id, Role.is_system == False)
+        .where(Role.org_id == ctx.scope_id, ~Role.is_system)
     )
     if count_result.scalar_one() >= _MAX_CUSTOM_ROLES:
         raise HTTPException(400, f"Custom role cap ({_MAX_CUSTOM_ROLES}) reached")

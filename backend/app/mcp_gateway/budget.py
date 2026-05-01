@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import time
 import logging
-from typing import Any
 
 from app.core.redis_client import get_redis
 

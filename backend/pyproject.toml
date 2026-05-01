@@ -1,0 +1,9 @@
+[tool.ruff.lint]
+# E402: imports after non-import code is a common FastAPI pattern (middleware
+#        setup before router imports, logger before imports in some files).
+# F821: SQLAlchemy uses string-based forward references in Mapped[] annotations
+#        which ruff cannot resolve at lint time — suppress only in model files.
+ignore = ["E402"]
+
+[tool.ruff.lint.per-file-ignores]
+"app/models/*.py" = ["F821"]

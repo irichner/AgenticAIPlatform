@@ -116,7 +116,7 @@ Be direct and actionable. Format as JSON:
             result["opportunity_id"] = str(opportunity_id)
             result["opportunity_name"] = opp.name
             return result
-    except Exception as e:
+    except Exception:
         pass
 
     # Fallback: rule-based NBA

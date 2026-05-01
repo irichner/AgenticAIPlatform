@@ -14,7 +14,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import update
 
 from app.mcp_gateway.models import McpIdempotencyOutcome
 from app.mcp_gateway.settings import settings

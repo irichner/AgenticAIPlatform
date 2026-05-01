@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from datetime import datetime, date, timezone, timedelta
+from datetime import datetime, timezone, timedelta
 from typing import Any
 from uuid import UUID
 

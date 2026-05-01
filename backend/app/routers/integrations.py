@@ -137,7 +137,8 @@ async def oauth_callback(
   }, 200);
 </script></body></html>
 """
-    error_script = lambda msg: f"""
+    def error_script(msg: str) -> str:
+        return f"""
 <html><body><script>
   try {{ localStorage.setItem('google-oauth-result', JSON.stringify({{type:'error',error:{json.dumps(msg)},ts:Date.now()}})); }} catch(e) {{}}
   if (window.opener) {{

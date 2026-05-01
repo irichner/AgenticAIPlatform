@@ -22,13 +22,11 @@ import hashlib
 import json
 import uuid
 import logging
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.auth.dependencies import resolve_org, current_user
 from app.dependencies import get_db

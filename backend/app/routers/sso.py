@@ -9,19 +9,14 @@ import secrets
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select
 from pydantic import BaseModel
 
 from app.dependencies import get_db
 from app.auth.dependencies import require_permission
 from app.auth.context import AuthContext
 from app.auth.permissions import P
-from app.auth.session import create_session
-from app.models.user import User
-from app.models.org import Org
 from app.models.sso import OrgSsoConfig, OrgEmailDomain
-from app.models.membership import OrgMembership
-from app.models.role import Role
 from app.models.audit_log import AuditLog
 
 router = APIRouter(prefix="/orgs", tags=["sso"])
@@ -239,10 +234,9 @@ async def sso_callback(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Exchange OIDC code for tokens, JIT-provision user, issue session."""
-    from starlette.responses import RedirectResponse
 
     try:
-        from authlib.integrations.httpx_client import AsyncOAuth2Client
+        from authlib.integrations.httpx_client import AsyncOAuth2Client  # noqa: F401
     except ImportError:
         raise HTTPException(501, "authlib not installed")
 

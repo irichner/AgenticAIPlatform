@@ -16,7 +16,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from croniter import croniter
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.db.engine import AsyncSessionLocal
 from app.models.agent_schedule import AgentSchedule

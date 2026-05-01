@@ -2,14 +2,13 @@ from __future__ import annotations
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete, func
-from sqlalchemy.orm import selectinload
+from sqlalchemy import select, func
 
 from app.dependencies import get_db
 from app.auth.dependencies import current_user, require_permission
 from app.auth.context import AuthContext
 from app.auth.permissions import P
-from app.auth.resolver import invalidate_user_perms, invalidate_role_members_perms
+from app.auth.resolver import invalidate_user_perms
 from app.auth.magic_link import create_magic_link
 from app.auth.email import send_magic_link
 from app.models.user import User

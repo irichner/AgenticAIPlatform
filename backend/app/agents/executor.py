@@ -17,6 +17,8 @@ from __future__ import annotations
 import json
 import os
 import uuid
+
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 from datetime import datetime, timezone
 
 from langchain_core.messages import HumanMessage

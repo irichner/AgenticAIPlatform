@@ -2,19 +2,18 @@ from __future__ import annotations
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select
 
 from app.dependencies import get_db
-from app.auth.dependencies import current_user, require_permission
+from app.auth.dependencies import require_permission
 from app.auth.context import AuthContext
 from app.auth.permissions import P
 from app.auth.resolver import invalidate_user_perms
 from app.auth.magic_link import create_magic_link
 from app.auth.email import send_magic_link
 from app.models.user import User
-from app.models.org import Org
 from app.models.tenant_model import OrgTenant
-from app.models.membership import OrgMembership, TenantMembership
+from app.models.membership import TenantMembership
 from app.models.role import Role
 from app.models.audit_log import AuditLog
 from app.schemas.tenant_schema import TenantCreate, TenantUpdate, TenantOut

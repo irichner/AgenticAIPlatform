@@ -10,7 +10,6 @@ Every GMAIL_POLL_INTERVAL_SECONDS (default 5 min) it:
 """
 from __future__ import annotations
 import asyncio
-import json
 import os
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime

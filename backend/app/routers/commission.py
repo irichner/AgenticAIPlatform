@@ -18,15 +18,13 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from uuid import UUID
-from datetime import datetime, date, timezone
-from typing import Any
+from datetime import datetime
 from pydantic import BaseModel
 
 from app.dependencies import get_db
-from app.auth.dependencies import resolve_org, current_user
+from app.auth.dependencies import resolve_org
 from app.models.commission import CommissionPlan, QuotaAllocation, AttainmentSnapshot
 from app.models.opportunity import Opportunity
-from app.models.user import User
 
 router = APIRouter(prefix="/commission", tags=["commission"])
 plans_router = APIRouter(prefix="/commission-plans", tags=["commission"])

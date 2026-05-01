@@ -5,13 +5,12 @@ POST /api/coaching/{user_id}/refresh — force-refresh coaching insights
 POST /api/briefing/generate          — generate manager briefing for current org
 """
 from __future__ import annotations
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 
-from app.auth.dependencies import resolve_org, current_user
+from app.auth.dependencies import resolve_org
 from app.dependencies import get_db
-from app.models.user import User
 
 router = APIRouter(tags=["coaching"])
 

@@ -7,15 +7,14 @@ from datetime import datetime, timezone
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select
 
 from app.dependencies import get_db
-from app.auth.context import AuthContext
-from app.auth.dependencies import current_user, optional_user
+from app.auth.dependencies import current_user
 from app.auth.magic_link import create_magic_link, consume_magic_link
 from app.auth.email import send_magic_link
 from app.auth.rate_limit import check_magic_link_rate
-from app.auth.session import create_session, revoke_session, validate_session
+from app.auth.session import create_session, revoke_session
 from app.models.user import User
 from app.models.org import Org
 from app.models.membership import OrgMembership, TenantMembership

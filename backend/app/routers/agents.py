@@ -14,7 +14,6 @@ from app.auth.dependencies import resolve_org
 from app.models.agent import Agent, AgentVersion
 from app.models.business_unit import BusinessUnit
 from app.models.mcp_server import McpServer
-from app.models.mcp_tool import McpTool
 from app.schemas.agent import AgentCreate, AgentUpdate, AgentOut, AgentVersionOut
 
 router = APIRouter(prefix="/agents", tags=["agents"])

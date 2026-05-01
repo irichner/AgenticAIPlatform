@@ -3,9 +3,10 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from typing import Any
+from uuid import UUID
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.api_provider import ApiProvider
@@ -315,7 +316,6 @@ async def connect_provider(
     org_id: "UUID | None" = None,
 ) -> ApiProvider:
     """Validate key, create/update provider record, and sync models."""
-    from uuid import UUID
     name = payload.name.lower().strip()
 
     # Validate before touching the DB

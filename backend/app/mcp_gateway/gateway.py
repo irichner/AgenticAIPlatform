@@ -48,11 +48,9 @@ from app.mcp_gateway.egress import EgressGuard
 from app.mcp_gateway.idempotency import claim, complete, fail, IdempotencyConflictError
 from app.mcp_gateway.models import McpRegistration
 from app.mcp_gateway.observability import emit_call_record
-from app.mcp_gateway.prompts import compose_guardrail_prompt
 from app.mcp_gateway.rbac import RBACChecker
 from app.mcp_gateway.sanitizer import sanitize
 from app.mcp_gateway.schemas import ToolInfo, ToolCallResult
-from app.mcp_gateway.settings import settings
 from app.mcp_gateway.snapshot import (
     create_snapshot,
     get_snapshot,
@@ -101,7 +99,7 @@ async def list_tools(
 
     egress = EgressGuard(registrations)
     rbac = RBACChecker(user_id=user_id, user_roles=user_roles or [])
-    org = await db.get(Org, org_id)
+    _org = await db.get(Org, org_id)
 
     all_tools: list[ToolInfo] = []
     tools_by_reg: dict[str, list[dict[str, Any]]] = {}

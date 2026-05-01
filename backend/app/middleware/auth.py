@@ -5,7 +5,6 @@ and injects `scope["auth_user_id"]` for the `current_user` dependency to pick up
 This never buffers the request body, so it is safe for SSE/streaming routes.
 """
 from __future__ import annotations
-from typing import Callable
 from starlette.types import ASGIApp, Receive, Scope, Send
 from app.db.engine import AsyncSessionLocal
 from app.auth.session import validate_session

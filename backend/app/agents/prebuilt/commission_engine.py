@@ -13,8 +13,6 @@ Supports:
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
-from decimal import Decimal, ROUND_HALF_UP
-from typing import Any
 
 
 @dataclass
@@ -51,8 +49,6 @@ def _apply_tiers(attainment_amount: float, quota: float, tiers: list[dict]) -> t
     """Apply tiered commission rates. Returns (total_commission, tier_breakdown)."""
     total = 0.0
     breakdown = []
-    attainment_pct = (attainment_amount / quota * 100) if quota > 0 else 0
-
     for tier in sorted(tiers, key=lambda t: t.get("from_pct", 0)):
         from_pct = tier.get("from_pct", 0)
         to_pct = tier.get("to_pct")  # None = unlimited
@@ -146,7 +142,6 @@ def calculate_commission(
     - draw_already_paid: recoverable draw already issued this period
     """
     definition = plan.get("definition", plan)  # accept both wrapped and unwrapped
-    plan_type = plan.get("plan_type", "tiered")
     plan_name = plan.get("name", "Commission Plan")
     plan_id = plan.get("id", "")
 

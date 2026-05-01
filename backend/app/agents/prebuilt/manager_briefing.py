@@ -54,16 +54,12 @@ async def _claude(prompt: str, max_tokens: int, api_key: str, model: str) -> str
 async def _gather_team_context(db: Any, org_id: str) -> dict:
     """Gather pipeline + attainment data for the org."""
     from sqlalchemy import select, func
-    from app.models.opportunity import Opportunity, OpportunityStage
-    from app.models.user import User
-    from app.models.commission import QuotaAllocation, AttainmentSnapshot
+    from app.models.opportunity import Opportunity
     from uuid import UUID
 
     now = datetime.now(timezone.utc)
     current_month = now.month
     current_year = now.year
-    thirty_days_ago = now - timedelta(days=30)
-
     # Open pipeline
     q_open = await db.execute(
         select(
@@ -164,7 +160,7 @@ async def run_manager_briefing_loop() -> None:
     while True:
         try:
             async with AsyncSessionLocal() as db:
-                from sqlalchemy import select as sa_select, text
+                from sqlalchemy import text
                 # Get all active orgs
                 result = await db.execute(text("SELECT id FROM lanara.orgs LIMIT 50"))
                 org_ids = [str(r[0]) for r in result.fetchall()]

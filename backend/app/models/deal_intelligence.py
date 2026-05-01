@@ -1,7 +1,7 @@
 from __future__ import annotations
 import uuid
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import String, Text, ForeignKey, Integer, text
+from sqlalchemy import String, Text, ForeignKey, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
 from app.models.base import Base, TimestampMixin
 

@@ -326,7 +326,7 @@ async def ask_lanara(
 
         result = await db.execute(
             select(McpServer)
-            .where(McpServer.enabled == True, McpServer.org_id == org_id)
+            .where(McpServer.enabled.is_(True), McpServer.org_id == org_id)
             .order_by(McpServer.name)
         )
         servers = result.scalars().all()

@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, SecretStr, field_validator, model_serializer
+from pydantic import BaseModel, field_validator
 
 
 class _RedactedConfig(BaseModel):

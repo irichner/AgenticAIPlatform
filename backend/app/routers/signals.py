@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from uuid import UUID
-from datetime import datetime, timezone
+from datetime import datetime
 
 from app.dependencies import get_db
 from app.auth.dependencies import resolve_org

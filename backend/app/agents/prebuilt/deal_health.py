@@ -7,12 +7,9 @@ Runs nightly (or on-demand). For each open opportunity:
 """
 from __future__ import annotations
 import asyncio
-import json
-import re
-from datetime import datetime, timezone, timedelta
-from typing import Any
+from datetime import datetime, timezone
 
-from sqlalchemy import select, update, func
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.engine import AsyncSessionLocal
