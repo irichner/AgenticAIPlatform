@@ -85,6 +85,21 @@ _COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN", None)
 _PREFLIGHT_MINUTES = 15
 
 
+def _public_base_url(request: Request, fallback: str) -> str:
+    """Return the public base URL from Traefik/nginx reverse-proxy headers.
+
+    In production, Coolify's Traefik sets X-Forwarded-Proto and
+    X-Forwarded-Host on every inbound request, so we always get the real
+    public hostname regardless of how APP_BASE_URL is configured.
+    Falls back to the env-var value for local dev (no proxy headers).
+    """
+    proto = request.headers.get("x-forwarded-proto")
+    host = request.headers.get("x-forwarded-host")
+    if proto and host:
+        return f"{proto}://{host}"
+    return fallback
+
+
 @router.post("/magic-link", response_model=MagicLinkResponse)
 async def request_magic_link(
     body: MagicLinkRequest,
@@ -101,7 +116,7 @@ async def request_magic_link(
 
     token, pre_flight_id = await create_magic_link(db, email, purpose="login")
 
-    link = f"{_API_PUBLIC_URL}/api/auth/verify?token={token}"
+    link = f"{_public_base_url(request, _API_PUBLIC_URL)}/api/auth/verify?token={token}"
     try:
         await send_magic_link(email, link, purpose="login", db=db)
     except Exception as exc:
@@ -175,10 +190,11 @@ async def verify_magic_link(
         max_age=30 * 24 * 3600,
     )
     # New users with no org (no invite, no domain match) go through the onboarding wizard
+    _base = _public_base_url(request, _APP_BASE_URL)
     dest = (
-        f"{_APP_BASE_URL}/onboarding"
+        f"{_base}/onboarding"
         if is_new and ml.purpose != "invite" and not domain_joined
-        else f"{_APP_BASE_URL}/"
+        else f"{_base}/"
     )
     from starlette.responses import RedirectResponse
     redirect = RedirectResponse(url=dest, status_code=302)
@@ -331,8 +347,9 @@ async def google_callback(
     from starlette.responses import RedirectResponse
     from app.auth.google_oauth import consume_state, fetch_userinfo
 
+    _base = _public_base_url(request, _APP_BASE_URL)
     if error or not code or not state:
-        return RedirectResponse(url=f"{_APP_BASE_URL}/login?error=google_denied")
+        return RedirectResponse(url=f"{_base}/login?error=google_denied")
 
     if not await consume_state(state):
         raise HTTPException(400, "Invalid OAuth state")
@@ -380,7 +397,7 @@ async def google_callback(
         ip=request.client.host if request.client else None,
     )
 
-    dest = f"{_APP_BASE_URL}/onboarding" if is_new and not domain_joined else f"{_APP_BASE_URL}/"
+    dest = f"{_base}/onboarding" if is_new and not domain_joined else f"{_base}/"
     redirect = RedirectResponse(url=dest, status_code=302)
     redirect.set_cookie(
         key="sid",
