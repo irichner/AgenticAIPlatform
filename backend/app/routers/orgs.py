@@ -16,6 +16,7 @@ from app.models.org import Org
 from app.models.membership import OrgMembership
 from app.models.role import Role
 from app.models.audit_log import AuditLog
+from app.models.sso import OrgEmailDomain
 from app.schemas.org import OrgCreate, OrgUpdate, OrgOut
 from app.schemas.member import InviteRequest, MemberOut, MemberRoleUpdate, MemberLimitsUpdate
 import os
@@ -69,6 +70,11 @@ async def create_org(
 
     db.add(OrgMembership(org_id=org.id, user_id=user.id, role_id=_ORG_OWNER_ROLE_ID))
     db.add(TenantMembership(tenant_id=tenant.id, user_id=user.id, role_id=_TN_ADMIN_ROLE_ID))
+
+    # Seed the owner's email domain so teammates auto-join on sign-in
+    domain = user.email.lower().split("@")[-1]
+    db.add(OrgEmailDomain(org_id=org.id, domain=domain))
+
     await db.commit()
     await db.refresh(org)
     return org
