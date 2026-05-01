@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Building2, Users, TrendingUp, Plus, Search,
   Mail, Phone, Globe, Target, Activity, MapPin, Briefcase,
-  ChevronUp, ChevronDown, ChevronRight, X, CheckCircle2, AlertCircle, Clock, Copy, Check,
+  ChevronUp, ChevronDown, ChevronRight, X, CheckCircle2, AlertCircle, Clock, Copy, Check, Pencil,
 } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { api, type Account, type Activity as ActivityType, type Contact, type Opportunity, type OpportunityStage } from "@/lib/api";
@@ -282,13 +282,28 @@ function NewOppModal({
 
 // ── Contact detail panel ──────────────────────────────────────────────────────
 
-function ContactPanel({ contact, account, activities, onClose }: {
+function ContactPanel({ contact, account, activities, onClose, onContactUpdate }: {
   contact: Contact;
   account: Account | undefined;
   activities: ActivityType[];
   onClose: () => void;
+  onContactUpdate?: (updated: Contact) => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [editingLinkedin, setEditingLinkedin] = useState(false);
+  const [linkedinDraft, setLinkedinDraft] = useState(contact.linkedin_url ?? "");
+  const [savingLinkedin, setSavingLinkedin] = useState(false);
+
+  async function saveLinkedin() {
+    setSavingLinkedin(true);
+    try {
+      const updated = await api.crm.contacts.update(contact.id, { linkedin_url: linkedinDraft || null });
+      onContactUpdate?.(updated);
+      setEditingLinkedin(false);
+    } finally {
+      setSavingLinkedin(false);
+    }
+  }
 
   const copyEmail = () => {
     if (!contact.email) return;
@@ -376,10 +391,36 @@ function ContactPanel({ contact, account, activities, onClose }: {
               <Phone className="w-3 h-3" /> Call
             </a>
           )}
-          {contact.linkedin_url && (
-            <a href={contact.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-xs px-2 py-1 rounded-lg bg-white/5 border border-border text-text-3 flex items-center gap-1.5 hover:border-violet/30 hover:text-text-2 transition-colors">
-              <Globe className="w-3 h-3" /> LinkedIn
-            </a>
+          {editingLinkedin ? (
+            <div className="flex items-center gap-1 w-full mt-1">
+              <input
+                autoFocus
+                value={linkedinDraft}
+                onChange={(e) => setLinkedinDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") saveLinkedin(); if (e.key === "Escape") setEditingLinkedin(false); }}
+                placeholder="https://linkedin.com/in/..."
+                className="flex-1 text-xs px-2 py-1 rounded-lg border border-border bg-surface-0 text-text-1 placeholder-text-3 outline-none focus:border-violet/50"
+              />
+              <button onClick={saveLinkedin} disabled={savingLinkedin} className="text-xs px-2 py-1 rounded-lg bg-violet/10 text-violet hover:bg-violet/20 transition-colors disabled:opacity-50">
+                {savingLinkedin ? "…" : "Save"}
+              </button>
+              <button onClick={() => setEditingLinkedin(false)} className="text-xs px-2 py-1 rounded-lg text-text-3 hover:text-text-1 transition-colors">
+                Cancel
+              </button>
+            </div>
+          ) : contact.linkedin_url ? (
+            <div className="flex items-center gap-1">
+              <a href={contact.linkedin_url} target="_blank" rel="noopener noreferrer" className="text-xs px-2 py-1 rounded-lg bg-white/5 border border-border text-text-3 flex items-center gap-1.5 hover:border-violet/30 hover:text-text-2 transition-colors">
+                <Globe className="w-3 h-3" /> LinkedIn
+              </a>
+              <button onClick={() => { setLinkedinDraft(contact.linkedin_url ?? ""); setEditingLinkedin(true); }} className="text-xs text-text-3 hover:text-text-1 transition-colors px-1">
+                <Pencil className="w-3 h-3" />
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => { setLinkedinDraft(""); setEditingLinkedin(true); }} className="text-xs px-2 py-1 rounded-lg bg-white/5 border border-dashed border-border text-text-3 flex items-center gap-1.5 hover:border-violet/30 hover:text-text-2 transition-colors">
+              <Globe className="w-3 h-3" /> Add LinkedIn
+            </button>
           )}
         </div>
 
@@ -912,6 +953,7 @@ function ContactsTab({ accounts, contacts, opportunities }: {
             account={accountMap.get(selected.account_id ?? "")}
             activities={contactActivity.get(selected.id) ?? []}
             onClose={() => setSelected(null)}
+            onContactUpdate={(updated) => setSelected(updated)}
           />
         )}
       </AnimatePresence>
