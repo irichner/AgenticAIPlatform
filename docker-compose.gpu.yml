@@ -1,0 +1,18 @@
+# AMD RX 580 (gfx803) GPU overrides for production.
+# Apply on top of docker-compose.yml via:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+# In Coolify: set "Compose File" to include this file as an additional override.
+
+services:
+  ollama:
+    image: ollama/ollama:0.3.14-rocm
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - "44"
+      - "991"
+    environment:
+      - OLLAMA_FLASH_ATTENTION=1
+      - HSA_OVERRIDE_GFX_VERSION=8.0.3
+      - ROCR_VISIBLE_DEVICES=0

@@ -18,3 +18,7 @@ services:
   mcp-postgres:
     ports:
       - "8012:8012"
+
+  ollama:
+    ports:
+      - "11434:11434"
