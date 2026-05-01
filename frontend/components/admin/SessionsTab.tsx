@@ -2,8 +2,7 @@
 
 import useSWR from "swr";
 import { Loader2, Monitor, Trash2 } from "lucide-react";
-import { api, type SessionOut } from "@/lib/api";
-import { cn } from "@/lib/cn";
+import { api } from "@/lib/api";
 
 export function SessionsTab() {
   const { data: sessions, isLoading, mutate } = useSWR(

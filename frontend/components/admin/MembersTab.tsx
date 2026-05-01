@@ -2,10 +2,9 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import { UserPlus, Trash2, ChevronDown, Loader2 } from "lucide-react";
+import { UserPlus, Trash2, Loader2 } from "lucide-react";
 import { api, type MemberOut, type RoleOut } from "@/lib/api";
 import { useAuth } from "@/contexts/auth";
-import { cn } from "@/lib/cn";
 
 export function MembersTab() {
   const { currentOrg } = useAuth();

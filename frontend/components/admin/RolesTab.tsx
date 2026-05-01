@@ -34,7 +34,7 @@ export function RolesTab() {
   function togglePerm(permId: string) {
     setPendingPerms((prev) => {
       const next = new Set(prev);
-      next.has(permId) ? next.delete(permId) : next.add(permId);
+      if (next.has(permId)) next.delete(permId); else next.add(permId);
       return next;
     });
   }

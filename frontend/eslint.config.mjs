@@ -13,6 +13,17 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  {
+    // react-hooks/set-state-in-effect and react-hooks/purity are React Compiler
+    // opt-in rules added in eslint-plugin-react-hooks v7. The codebase uses
+    // standard pre-Compiler patterns (setState in effects for initialization,
+    // refs in event handlers). Disable until a deliberate Compiler migration.
+    rules: {
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/purity": "off",
+      "react-hooks/refs": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;

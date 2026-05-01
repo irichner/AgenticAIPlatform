@@ -107,6 +107,7 @@ function StepOrgIdentity({
         <label className="block text-sm text-text-2 mb-1">Logo <span className="text-text-3">(optional)</span></label>
         <div className="flex items-center gap-3">
           {logoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={logoUrl}
               alt="Logo preview"

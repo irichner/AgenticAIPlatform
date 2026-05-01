@@ -295,7 +295,6 @@ export function CanvasView({ businessUnits, agents, groups, onRun, onSelectAgent
         (unitId) => onToggleCollapseRef.current(unitId),
         (id) => onSelectAgentRef.current?.(id),
       ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [businessUnits, agents, groups],
   );
 
@@ -352,7 +351,7 @@ export function CanvasView({ businessUnits, agents, groups, onRun, onSelectAgent
         onReassignRef.current(agentId, targetZone.id.replace(/^zone-/, ""));
       }
     },
-    [],
+    [orgId],
   );
 
   // Persist viewport after pan/zoom ends

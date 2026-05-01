@@ -89,6 +89,7 @@ export function Sidebar() {
         <div className="flex items-center gap-2.5 flex-1 min-w-0">
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet to-cyan flex items-center justify-center shrink-0 overflow-hidden">
             {appIcon
+              // eslint-disable-next-line @next/next/no-img-element
               ? <img src={appIcon} alt="" className="w-full h-full object-cover" />
               : <span className="text-xs font-black text-white">L</span>
             }

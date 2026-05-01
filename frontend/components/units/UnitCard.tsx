@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import Link from "next/link";
 import { Bot, Trash2, Layers, Check, X, AlertTriangle } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/cn";
@@ -31,7 +30,6 @@ export function UnitCard({
   agents,
   groups,
   index,
-  onCreateAgent,
   onCreateGroup,
   onDeleteGroup,
   onDeleteUnit,

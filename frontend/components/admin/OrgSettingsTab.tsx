@@ -6,10 +6,6 @@ import { Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuth } from "@/contexts/auth";
 
-function toSlug(value: string): string {
-  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 63);
-}
-
 export function OrgSettingsTab() {
   const { currentOrg, refresh } = useAuth();
   const orgId = currentOrg?.id ?? "";
@@ -29,6 +25,7 @@ export function OrgSettingsTab() {
     if (!org) return;
     setName((prev) => prev || org.name);
     setLogoUrl((prev) => (prev === null ? (org.logo_url ?? null) : prev));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [org?.id]);
 
   function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -68,6 +65,7 @@ export function OrgSettingsTab() {
           <div className="flex items-center gap-4">
             <div className="h-16 w-16 rounded-xl border border-border bg-surface-0 flex items-center justify-center overflow-hidden shrink-0">
               {logoUrl
+                // eslint-disable-next-line @next/next/no-img-element
                 ? <img src={logoUrl} alt="Logo" className="w-full h-full object-contain" />
                 : <div className="w-full h-full bg-gradient-to-br from-violet to-cyan flex items-center justify-center">
                     <span className="text-xl font-black text-white">

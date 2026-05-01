@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo } from "react";
 import { NodeResizer, type NodeProps } from "@xyflow/react";
 import { cn } from "@/lib/cn";
 

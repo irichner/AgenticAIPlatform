@@ -23,14 +23,14 @@ import {
 import "@xyflow/react/dist/style.css";
 import {
   Undo2, Redo2, Trash2, LayoutDashboard, CheckCircle2,
-  AlertTriangle, Download, Upload, FilePlus, Save, Play, X,
+  AlertTriangle, Download, Upload, FilePlus, Save, X,
   GitBranch, Loader2, Zap,
 } from "lucide-react";
 
 import { Sidebar } from "@/components/layout/Sidebar";
 import { AgentLibraryPanel } from "@/components/workflow/AgentLibraryPanel";
 import { NodePropertiesPanel } from "@/components/workflow/NodePropertiesPanel";
-import { TriggerNode, type TriggerNodeData, type TriggerType } from "@/components/workflow/TriggerNode";
+import { TriggerNode, type TriggerNodeData } from "@/components/workflow/TriggerNode";
 import { WorkflowStepNode, type WorkflowStepData } from "@/components/workflow/WorkflowStepNode";
 import { EndEventNode, type EndEventData } from "@/components/workflow/EndEventNode";
 import { GatewayNode, type GatewayData } from "@/components/workflow/GatewayNode";

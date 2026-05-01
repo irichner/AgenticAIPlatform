@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import useSWR from "swr";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -136,12 +136,11 @@ export default function DashboardPage() {
     { refreshInterval: NEWS_INTERVAL, revalidateOnFocus: false },
   );
 
-  const hits: HnHit[] = newsData?.hits ?? [];
+  const hits: HnHit[] = useMemo(() => newsData?.hits ?? [], [newsData]);
 
   // Track new articles since last view
   const seenIds   = useRef<Set<string>>(new Set());
   const [newCount, setNewCount] = useState(0);
-  const [showingNew, setShowingNew] = useState(false);
 
   useEffect(() => {
     if (!hits.length) return;
@@ -156,8 +155,6 @@ export default function DashboardPage() {
   const handleShowNew = () => {
     hits.forEach((h) => seenIds.current.add(h.objectID));
     setNewCount(0);
-    setShowingNew(true);
-    setTimeout(() => setShowingNew(false), 100);
   };
 
   return (

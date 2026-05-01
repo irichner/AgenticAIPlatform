@@ -5,8 +5,6 @@ import useSWR from "swr";
 import { Download, RefreshCw, Loader2 } from "lucide-react";
 import { api, type AuditLogEntry } from "@/lib/api";
 import { useAuth } from "@/contexts/auth";
-import { cn } from "@/lib/cn";
-
 export function AuditLogTab() {
   const { currentOrg } = useAuth();
   const orgId = currentOrg?.id ?? "";

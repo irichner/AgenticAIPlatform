@@ -1,7 +1,7 @@
 "use client";
 
 import { Bot } from "lucide-react";
-import { cn } from "@/lib/cn";
+
 import type { Node, Edge } from "@xyflow/react";
 import type { TriggerNodeData, TriggerType } from "./TriggerNode";
 import type { WorkflowStepData, InputType } from "./WorkflowStepNode";

@@ -2,8 +2,6 @@
 
 import { useEffect, useRef } from "react";
 import { CheckCircle2, XCircle, Loader2, ArrowRight, Zap, X } from "lucide-react";
-import { cn } from "@/lib/cn";
-
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export type ExecEventType =
@@ -39,12 +37,6 @@ interface RunInputDialogProps {
 // ── Run input dialog ──────────────────────────────────────────────────────────
 
 export function RunInputDialog({ onRun, onClose }: RunInputDialogProps) {
-  const [message, setMessage] = [
-    useRef(""),
-    (v: string) => { message.current = v; },
-  ] as unknown as [React.MutableRefObject<string>, (v: string) => void];
-
-  // We just use local state for the textarea
   const textRef = useRef<HTMLTextAreaElement>(null);
 
   return (

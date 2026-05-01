@@ -2548,7 +2548,6 @@ function OllamaLibraryView({ models, mutate }: { models: AiModel[]; mutate: () =
       setOllamaUrl(fallback);
       fetchInstalled(fallback);
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleRegistered = () => {
