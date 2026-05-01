@@ -4,6 +4,7 @@ All LLM selection is driven by the Admin → AI configuration. There are no hard
 provider fallbacks — callers receive None and must handle the unconfigured case.
 """
 from __future__ import annotations
+import os
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
