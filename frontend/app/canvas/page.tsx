@@ -504,10 +504,7 @@ function CanvasPageInner() {
   const activeAgentId = rightPanel?.type === "properties" ? rightPanel.agentId : null;
   const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
   const [hasRunStarted, setHasRunStarted] = useState(false);
-  const [consoleCollapsed, setConsoleCollapsed] = useState(true);
-
-  // Start the console panel collapsed on mount
-  useEffect(() => { consolePanelRef.current?.collapse(); }, []);
+  const [consoleCollapsed, setConsoleCollapsed] = useState(false);
   const consolePanelRef = usePanelRef();
 
   const [pendingRun, setPendingRun]   = useState<{ message: string; seq: number } | null>(null);
