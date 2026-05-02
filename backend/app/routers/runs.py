@@ -12,6 +12,7 @@ from sse_starlette.sse import EventSourceResponse
 from app.agents.executor import execute_run
 from app.auth.dependencies import resolve_org
 from app.core.redis_client import get_redis
+from app.db.engine import AsyncSessionLocal
 from app.dependencies import get_db
 from app.models.agent import Agent, AgentVersion
 from app.models.business_unit import BusinessUnit
@@ -82,25 +83,33 @@ async def stream_run(
     redis = get_redis()
     channel = f"run:{run_id}"
 
-    run = await _get_run_for_org(run_id, org_id, db)
-
-    if run.status in ("completed", "failed"):
-        async def finished_generator():
-            event_type = "complete" if run.status == "completed" else "error"
-            yield {
-                "data": json.dumps({
-                    "event": event_type,
-                    "run_id": str(run_id),
-                    "output": run.output,
-                    "error": run.error,
-                })
-            }
-        return EventSourceResponse(finished_generator())
+    await _get_run_for_org(run_id, org_id, db)
 
     async def live_generator():
         pubsub = redis.pubsub()
         await pubsub.subscribe(channel)
         try:
+            # Re-read from a *fresh* DB session after subscribing so we never
+            # miss the terminal event when the executor completes before our
+            # subscription is set up (executor always commits DB before
+            # publishing to Redis). Using a fresh session avoids stale-state
+            # issues with the dependency-injected session inside a generator.
+            async with AsyncSessionLocal() as fresh_db:
+                result = await fresh_db.execute(select(Run).where(Run.id == run_id))
+                latest = result.scalar_one_or_none()
+
+            if latest and latest.status in ("completed", "failed"):
+                event_type = "complete" if latest.status == "completed" else "error"
+                yield {
+                    "data": json.dumps({
+                        "event": event_type,
+                        "run_id": str(run_id),
+                        "output": latest.output,
+                        "error": latest.error,
+                    })
+                }
+                return
+
             async for message in pubsub.listen():
                 if message["type"] != "message":
                     continue
