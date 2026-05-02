@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import useSWR from "swr";
+import { Pencil } from "lucide-react";
 import { api, type AgentDbPolicy, type TableInfo } from "@/lib/api";
 import { cn } from "@/lib/cn";
 
@@ -131,6 +132,8 @@ export function AgentDbAccessTab({ agentId }: Props) {
   const handleDelete = async (id: string) => {
     try { await api.agentDbPolicies.delete(id); await mutate(); } catch { /* ignore */ }
   };
+
+  const handleUpdate = async () => { await mutate(); };
 
   const existingTables = new Set(policies.map((p: AgentDbPolicy) => p.table_name));
 
@@ -300,8 +303,10 @@ export function AgentDbAccessTab({ agentId }: Props) {
             <PolicyCard
               key={p.id}
               policy={p}
+              tables={tables}
               onToggle={() => handleToggle(p.id)}
               onDelete={() => handleDelete(p.id)}
+              onUpdate={handleUpdate}
             />
           ))}
         </div>
@@ -310,76 +315,249 @@ export function AgentDbAccessTab({ agentId }: Props) {
   );
 }
 
+interface EditFormState {
+  name: string;
+  operations: string[];
+  row_limit: string;
+  column_allowlist: string;
+  column_blocklist: string;
+  enabled: boolean;
+}
+
+function policyToEditForm(p: AgentDbPolicy): EditFormState {
+  return {
+    name: p.name,
+    operations: [...p.allowed_operations],
+    row_limit: String(p.row_limit ?? 100),
+    column_allowlist: (p.column_allowlist ?? []).join(", "),
+    column_blocklist: (p.column_blocklist ?? []).join(", "),
+    enabled: p.enabled,
+  };
+}
+
 function PolicyCard({
   policy,
+  tables,
   onToggle,
   onDelete,
+  onUpdate,
 }: {
   policy: AgentDbPolicy;
+  tables: TableInfo[];
   onToggle: () => void;
   onDelete: () => void;
+  onUpdate: () => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [editing, setEditing]             = useState(false);
+  const [editForm, setEditForm]           = useState<EditFormState>(policyToEditForm(policy));
+  const [saving, setSaving]               = useState(false);
+  const [editError, setEditError]         = useState<string | null>(null);
+
+  const setE = <K extends keyof EditFormState>(k: K, v: EditFormState[K]) =>
+    setEditForm((f) => ({ ...f, [k]: v }));
+
+  const toggleEditOp = (op: string) =>
+    setE("operations", editForm.operations.includes(op)
+      ? editForm.operations.filter((o) => o !== op)
+      : [...editForm.operations, op]);
+
+  const openEdit = () => {
+    setEditForm(policyToEditForm(policy));
+    setEditError(null);
+    setConfirmDelete(false);
+    setEditing(true);
+  };
+
+  const handleSave = async () => {
+    if (editForm.operations.length === 0) return;
+    setSaving(true);
+    setEditError(null);
+    try {
+      await api.agentDbPolicies.update(policy.id, {
+        name: editForm.name.trim() || policy.table_name,
+        allowed_operations: editForm.operations,
+        row_limit: parseInt(editForm.row_limit, 10) || 100,
+        column_allowlist: parseList(editForm.column_allowlist),
+        column_blocklist: parseList(editForm.column_blocklist),
+        enabled: editForm.enabled,
+      });
+      await onUpdate();
+      setEditing(false);
+    } catch (e) {
+      setEditError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const tableInfo = tables.find((t) => t.table_name === policy.table_name);
 
   return (
     <div className={cn(
       "rounded-xl border p-3 flex flex-col gap-2 transition-colors",
       policy.enabled ? "border-border bg-surface-2/30" : "border-border/40 bg-surface-2/10 opacity-60",
+      editing && "border-violet/40",
     )}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-text-1 truncate">{policy.name}</p>
-          <p className="text-[10px] text-text-3 font-mono mt-0.5">{policy.table_name}</p>
-          {TABLE_DESCRIPTIONS[policy.table_name] && (
-            <p className="text-[10px] text-text-2 mt-1 leading-relaxed">{TABLE_DESCRIPTIONS[policy.table_name]}</p>
-          )}
-        </div>
-        <span className="text-[10px] text-text-3 bg-surface-2 px-1.5 py-0.5 rounded shrink-0">
-          max {policy.row_limit} rows
-        </span>
-      </div>
+      {/* ── Summary view ──────────────────────────────────────────────────── */}
+      {!editing && (
+        <>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-text-1 truncate">{policy.name}</p>
+              <p className="text-[10px] text-text-3 font-mono mt-0.5">{policy.table_name}</p>
+              {TABLE_DESCRIPTIONS[policy.table_name] && (
+                <p className="text-[10px] text-text-2 mt-1 leading-relaxed">{TABLE_DESCRIPTIONS[policy.table_name]}</p>
+              )}
+            </div>
+            <span className="text-[10px] text-text-3 bg-surface-2 px-1.5 py-0.5 rounded shrink-0">
+              max {policy.row_limit} rows
+            </span>
+          </div>
 
-      <div className="flex flex-wrap gap-1">
-        {policy.allowed_operations.map((op) => (
-          <span key={op} className={cn("text-[9px] px-1.5 py-0.5 rounded font-medium uppercase tracking-wide", OP_COLORS[op] ?? "text-text-3 bg-surface-2")}>
-            {op}
-          </span>
-        ))}
-      </div>
+          <div className="flex flex-wrap gap-1">
+            {policy.allowed_operations.map((op) => (
+              <span key={op} className={cn("text-[9px] px-1.5 py-0.5 rounded font-medium uppercase tracking-wide", OP_COLORS[op] ?? "text-text-3 bg-surface-2")}>
+                {op}
+              </span>
+            ))}
+          </div>
 
-      {(policy.column_allowlist || policy.column_blocklist) && (
-        <div className="text-[10px] text-text-3 space-y-0.5">
-          {policy.column_allowlist && (
-            <p>Allow: <span className="text-text-2">{policy.column_allowlist.join(", ")}</span></p>
+          {(policy.column_allowlist || policy.column_blocklist) && (
+            <div className="text-[10px] text-text-3 space-y-0.5">
+              {policy.column_allowlist && (
+                <p>Allow: <span className="text-text-2">{policy.column_allowlist.join(", ")}</span></p>
+              )}
+              {policy.column_blocklist && (
+                <p>Block: <span className="text-rose-400">{policy.column_blocklist.join(", ")}</span></p>
+              )}
+            </div>
           )}
-          {policy.column_blocklist && (
-            <p>Block: <span className="text-rose-400">{policy.column_blocklist.join(", ")}</span></p>
-          )}
-        </div>
+
+          <div className="flex items-center gap-1.5 pt-1 border-t border-border/40">
+            <button
+              onClick={onToggle}
+              className={cn(
+                "px-2 py-1 rounded-lg text-[10px] font-medium transition-colors",
+                policy.enabled
+                  ? "bg-surface-2 text-text-3 hover:text-rose-400"
+                  : "bg-violet/10 text-violet hover:bg-violet/20",
+              )}
+            >
+              {policy.enabled ? "Disable" : "Enable"}
+            </button>
+            <button
+              onClick={openEdit}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] text-text-3 hover:text-violet transition-colors"
+            >
+              <Pencil className="w-2.5 h-2.5" />
+              Edit
+            </button>
+            <div className="flex-1" />
+            {confirmDelete ? (
+              <>
+                <button onClick={() => setConfirmDelete(false)} className="px-2 py-1 rounded-lg text-[10px] text-text-3 hover:text-text-2 transition-colors">Cancel</button>
+                <button onClick={onDelete} className="px-2 py-1 rounded-lg text-[10px] font-medium bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-colors">Confirm</button>
+              </>
+            ) : (
+              <button onClick={() => setConfirmDelete(true)} className="px-2 py-1 rounded-lg text-[10px] text-text-3 hover:text-rose-400 transition-colors">Delete</button>
+            )}
+          </div>
+        </>
       )}
 
-      <div className="flex items-center gap-1.5 pt-1 border-t border-border/40">
-        <button
-          onClick={onToggle}
-          className={cn(
-            "px-2 py-1 rounded-lg text-[10px] font-medium transition-colors",
-            policy.enabled
-              ? "bg-surface-2 text-text-3 hover:text-rose-400"
-              : "bg-violet/10 text-violet hover:bg-violet/20",
-          )}
-        >
-          {policy.enabled ? "Disable" : "Enable"}
-        </button>
-        <div className="flex-1" />
-        {confirmDelete ? (
-          <>
-            <button onClick={() => setConfirmDelete(false)} className="px-2 py-1 rounded-lg text-[10px] text-text-3 hover:text-text-2 transition-colors">Cancel</button>
-            <button onClick={onDelete} className="px-2 py-1 rounded-lg text-[10px] font-medium bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-colors">Confirm</button>
-          </>
-        ) : (
-          <button onClick={() => setConfirmDelete(true)} className="px-2 py-1 rounded-lg text-[10px] text-text-3 hover:text-rose-400 transition-colors">Delete</button>
-        )}
-      </div>
+      {/* ── Edit form ─────────────────────────────────────────────────────── */}
+      {editing && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-violet">Editing — {policy.table_name}</span>
+            <button onClick={() => setEditing(false)} className="text-[10px] text-text-3 hover:text-text-2 transition-colors">Cancel</button>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className={labelCls}>Policy name</label>
+            <input
+              value={editForm.name}
+              onChange={(e) => setE("name", e.target.value)}
+              placeholder={policy.table_name}
+              className={inputCls}
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className={labelCls}>Allowed operations *</label>
+            <div className="flex gap-1.5 flex-wrap">
+              {DB_OPS.map((op) => (
+                <button
+                  key={op}
+                  type="button"
+                  onClick={() => toggleEditOp(op)}
+                  className={cn(
+                    "px-2.5 py-1 rounded-lg text-xs font-medium transition-colors border",
+                    editForm.operations.includes(op)
+                      ? cn(OP_COLORS[op], "border-current/30")
+                      : "border-border text-text-3 bg-surface-2 hover:border-border/60",
+                  )}
+                >
+                  {op}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className={labelCls}>Row limit</label>
+            <input
+              type="number"
+              min={1}
+              max={5000}
+              value={editForm.row_limit}
+              onChange={(e) => setE("row_limit", e.target.value)}
+              className={inputCls}
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className={labelCls}>Column allowlist</label>
+            <input
+              value={editForm.column_allowlist}
+              onChange={(e) => setE("column_allowlist", e.target.value)}
+              placeholder="col1, col2 (empty = all columns)"
+              className={inputCls}
+            />
+            {tableInfo && (
+              <p className="text-[10px] text-text-3">
+                Available: {tableInfo.columns.map((c) => c.name).join(", ")}
+              </p>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className={labelCls}>Column blocklist</label>
+            <input
+              value={editForm.column_blocklist}
+              onChange={(e) => setE("column_blocklist", e.target.value)}
+              placeholder="secret_col (always hidden)"
+              className={inputCls}
+            />
+          </div>
+
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={editForm.enabled} onChange={(e) => setE("enabled", e.target.checked)} className="accent-violet" />
+            <span className="text-xs text-text-2">Enabled</span>
+          </label>
+
+          {editError && <p className="text-xs text-rose-400 bg-rose-500/10 rounded-lg px-3 py-2">{editError}</p>}
+
+          <button
+            onClick={handleSave}
+            disabled={saving || editForm.operations.length === 0}
+            className="w-full py-2 rounded-xl bg-violet/20 hover:bg-violet/35 disabled:opacity-40 text-violet text-sm font-medium transition-colors"
+          >
+            {saving ? "Saving…" : "Save Changes"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
