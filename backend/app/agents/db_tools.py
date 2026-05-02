@@ -138,26 +138,29 @@ async def _build_policy_tools(policy, org_id: uuid.UUID, db: AsyncSession) -> li
 
 # ── Tool factories ────────────────────────────────────────────────────────────
 
-class _ReadInput(BaseModel):
-    filters: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Equality filters as {column: value}. Example: {\"status\": \"active\"}",
-    )
-    columns: list[str] = Field(
-        default_factory=list,
-        description="Columns to return. Empty list returns all allowed columns.",
-    )
-    limit: int = Field(default=20, ge=1, le=200, description="Maximum rows to return")
-    offset: int = Field(default=0, ge=0, description="Row offset for pagination")
-    sort_by: str = Field(default="", description="Column name to sort by")
-    sort_desc: bool = Field(default=False, description="Sort descending when true")
-
-
 def _make_read_tool(table_name, org_id, allowed_cols, has_org_id, max_rows):
+    # Schema defined here so limit default and ceiling match the policy's row_limit
+    class _ReadInput(BaseModel):
+        filters: dict[str, Any] = Field(
+            default_factory=dict,
+            description='Equality filters as {column: value}. Example: {"status": "active"}',
+        )
+        columns: list[str] = Field(
+            default_factory=list,
+            description="Columns to return. Empty list returns all allowed columns.",
+        )
+        limit: int = Field(
+            default=max_rows, ge=1, le=max_rows,
+            description=f"Rows to return (policy max: {max_rows}). Use offset to paginate.",
+        )
+        offset: int = Field(default=0, ge=0, description="Row offset for pagination")
+        sort_by: str = Field(default="", description="Column name to sort by")
+        sort_desc: bool = Field(default=False, description="Sort descending when true")
+
     async def _read(
         filters: dict[str, Any] = {},
         columns: list[str] = [],
-        limit: int = 20,
+        limit: int = max_rows,
         offset: int = 0,
         sort_by: str = "",
         sort_desc: bool = False,
@@ -206,6 +209,7 @@ def _make_read_tool(table_name, org_id, allowed_cols, has_org_id, max_rows):
         name=f"db_read_{table_name}",
         description=(
             f"Read rows from the {table_name} table. "
+            f"Returns up to {max_rows} rows per call (use offset to paginate). "
             f"Available columns: {', '.join(allowed_cols)}. "
             "Results are always scoped to the current org."
         ),
