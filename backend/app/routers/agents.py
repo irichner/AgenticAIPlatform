@@ -50,6 +50,8 @@ async def list_agents(
     )
     if business_unit_id:
         stmt = stmt.where(Agent.business_unit_id == business_unit_id)
+    if "*" not in ctx.permissions:
+        stmt = stmt.where(Agent.is_system == False)  # noqa: E712
     result = await db.execute(stmt.order_by(Agent.name))
     return result.scalars().all()
 
@@ -223,7 +225,7 @@ async def get_agent(
         .where(Agent.id == agent_id, BusinessUnit.org_id == ctx.scope_id)
     )
     agent = result.scalar_one_or_none()
-    if agent is None:
+    if agent is None or (agent.is_system and "*" not in ctx.permissions):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     return agent
 

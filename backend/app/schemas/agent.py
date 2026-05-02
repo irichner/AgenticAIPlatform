@@ -38,6 +38,7 @@ class AgentOut(AgentBase):
     group_id: UUID | None
     model_id: UUID | None
     status: str
+    is_system: bool
     created_by: UUID | None
     created_at: datetime
     updated_at: datetime

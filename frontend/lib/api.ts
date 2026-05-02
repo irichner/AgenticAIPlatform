@@ -110,6 +110,7 @@ export interface Agent {
   name: string;
   description: string | null;
   status: "draft" | "published" | "archived";
+  is_system: boolean;
   created_by: string | null;
   created_at: string;
   updated_at: string;

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import String, Text, Integer, ForeignKey, UniqueConstraint, DateTime, Table, Column, text
+from sqlalchemy import Boolean, String, Text, Integer, ForeignKey, UniqueConstraint, DateTime, Table, Column, text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
 import uuid
 from app.models.base import Base, TimestampMixin
@@ -38,6 +38,7 @@ class Agent(Base, TimestampMixin):
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("lanara.users.id", ondelete="SET NULL"), nullable=True
     )
+    is_system: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     mcp_servers = relationship(
         "McpServer",
         secondary=agent_mcp_servers,

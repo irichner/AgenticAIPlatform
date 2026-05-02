@@ -2,8 +2,9 @@
 
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import useSWR from "swr";
-import { ChevronDown, Search, Pencil, Trash2, Check, X, Plus } from "lucide-react";
+import { ChevronDown, Search, Pencil, Trash2, Check, X, Plus, Shield } from "lucide-react";
 import { api, type Agent, type AgentGroup, type BusinessUnit } from "@/lib/api";
+import { useAuth } from "@/contexts/auth";
 import { cn } from "@/lib/cn";
 
 const STATUSES = ["draft", "published", "archived"] as const;
@@ -32,6 +33,7 @@ function AgentRow({
   onRun,
   onRefresh,
   isRunning,
+  isAdmin,
 }: {
   agent: Agent;
   selected: boolean;
@@ -39,6 +41,7 @@ function AgentRow({
   onRun: () => void;
   onRefresh: () => void;
   isRunning?: boolean;
+  isAdmin?: boolean;
 }) {
   const [statusOpen, setStatusOpen] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
@@ -67,6 +70,16 @@ function AgentRow({
       <span className={cn("text-sm flex-1 truncate", selected ? "text-text-1 font-medium" : "text-text-1")}>
         {agent.name}
       </span>
+
+      {agent.is_system && isAdmin && (
+        <span
+          className="flex items-center gap-0.5 text-[9px] text-violet/70 bg-violet/8 border border-violet/20 px-1.5 py-0.5 rounded-full shrink-0 font-medium"
+          title="System agent — seeded by Lanara"
+        >
+          <Shield className="w-2.5 h-2.5" />
+          System
+        </span>
+      )}
 
       {/* Status dropdown button */}
       <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
@@ -221,6 +234,7 @@ function SwarmSection({
   onRename,
   onDelete,
   totalAgents,
+  isAdmin,
 }: {
   unit: BusinessUnit;
   agents: Agent[];
@@ -239,6 +253,7 @@ function SwarmSection({
   onRename: (id: string, name: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   totalAgents?: number;
+  isAdmin?: boolean;
 }) {
   const [editing, setEditing]         = useState(false);
   const [editName, setEditName]       = useState(unit.name);
@@ -399,6 +414,7 @@ function SwarmSection({
                 onSelect={() => onSelectAgent(agent.id)}
                 onRun={() => onRun(agent.id)}
                 onRefresh={onRefresh}
+                isAdmin={isAdmin}
               />
             ))
           )}
@@ -434,6 +450,8 @@ export function SwarmList({
   onRefresh,
 }: SwarmListProps) {
   const storageKey = `swarm-collapsed-${orgId}`;
+  const { can } = useAuth();
+  const isAdmin = can("*");
 
   const { data: allUnits = [], mutate: mutateUnits } = useSWR(
     orgId ? ["business-units-canvas", orgId] : null,
@@ -591,6 +609,7 @@ export function SwarmList({
           onRename={handleRenameSwarm}
           onDelete={handleDeleteSwarm}
           totalAgents={depth === 0 ? countAgentsDeep(unit.id) : undefined}
+          isAdmin={isAdmin}
         />
         {isCreatingChild && (
           <div className="ml-4 pl-3 border-l-2 border-violet/30 py-2">

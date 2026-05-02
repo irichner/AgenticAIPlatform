@@ -24,6 +24,191 @@ import os
 router = APIRouter(prefix="/orgs", tags=["orgs"])
 _APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:3000")
 
+# ── Default swarm seed data ───────────────────────────────────────────────────
+# 5 swarms × 3 sub-swarms × 3 agents = 45 system agents seeded per new org
+
+_SEED_STRUCTURE = [
+    {
+        "name": "Sales",
+        "sub_swarms": [
+            {
+                "name": "Salesforce",
+                "agents": [
+                    ("Pipeline Manager", "Monitors deal progression across the pipeline, flags stale opportunities, and surfaces accounts needing attention."),
+                    ("Deal Coach", "Analyzes CRM data to surface deal risks and recommend next best actions to help reps close."),
+                    ("Forecast Analyst", "Generates weekly and monthly revenue forecasts from pipeline data and highlights gaps to quota."),
+                ],
+            },
+            {
+                "name": "Gong",
+                "agents": [
+                    ("Call Analyzer", "Reviews recorded sales calls to extract key insights, objections, and competitor mentions."),
+                    ("Revenue Intelligence Agent", "Synthesizes conversation data with CRM signals to surface revenue risks and deal momentum shifts."),
+                    ("Coaching Manager", "Identifies coachable moments from calls and surfaces reps who need targeted guidance."),
+                ],
+            },
+            {
+                "name": "Outreach",
+                "agents": [
+                    ("Sequence Optimizer", "Analyzes email sequence performance and recommends subject line, timing, and content improvements."),
+                    ("Prospect Engagement Monitor", "Tracks prospect engagement signals and surfaces hot leads for immediate rep follow-up."),
+                    ("Meeting Booker", "Manages follow-up cadences and automates meeting scheduling from active sequences."),
+                ],
+            },
+        ],
+    },
+    {
+        "name": "Marketing",
+        "sub_swarms": [
+            {
+                "name": "HubSpot",
+                "agents": [
+                    ("Lead Scoring Agent", "Evaluates inbound leads and assigns scores based on firmographic fit and behavioral engagement signals."),
+                    ("Campaign Performance Monitor", "Tracks marketing campaign metrics and surfaces underperforming assets for review."),
+                    ("Contact Lifecycle Manager", "Manages contact lifecycle stage transitions and triggers automated nurture workflows."),
+                ],
+            },
+            {
+                "name": "Marketo",
+                "agents": [
+                    ("Email Campaign Manager", "Builds and monitors email campaigns, optimizing for open rates, click-through, and conversion."),
+                    ("Lead Nurture Specialist", "Designs and executes multi-touch nurture programs for leads at each stage of the funnel."),
+                    ("Attribution Analyst", "Analyzes multi-touch attribution data to identify which channels and content drive pipeline."),
+                ],
+            },
+            {
+                "name": "Segment",
+                "agents": [
+                    ("Audience Builder", "Creates and manages behavioral audience segments for targeting across marketing channels."),
+                    ("Data Quality Monitor", "Validates event tracking integrity and flags missing or malformed data entering the pipeline."),
+                    ("Conversion Funnel Analyst", "Analyzes user journey data to identify funnel drop-off points and conversion opportunities."),
+                ],
+            },
+        ],
+    },
+    {
+        "name": "Finance",
+        "sub_swarms": [
+            {
+                "name": "QuickBooks",
+                "agents": [
+                    ("Expense Reviewer", "Audits expense submissions for policy compliance and categorization accuracy."),
+                    ("Cash Flow Monitor", "Tracks cash flow trends and alerts when account balances approach threshold limits."),
+                    ("Reconciliation Agent", "Automates bank and account reconciliation and flags discrepancies for review."),
+                ],
+            },
+            {
+                "name": "NetSuite",
+                "agents": [
+                    ("Financial Close Manager", "Coordinates and tracks month-end close activities, flagging open items blocking completion."),
+                    ("Budget Variance Analyst", "Compares actuals to budget and surfaces significant variances requiring explanation."),
+                    ("AP/AR Monitor", "Monitors accounts payable and receivable aging reports and surfaces overdue items."),
+                ],
+            },
+            {
+                "name": "Stripe",
+                "agents": [
+                    ("Revenue Recognition Agent", "Tracks subscription revenue events and ensures proper recognition schedules are applied."),
+                    ("Churn Risk Monitor", "Identifies failed payments and cancellation patterns to flag accounts at risk of churning."),
+                    ("Billing Operations Specialist", "Manages subscription upgrades, downgrades, and proration events for accurate billing."),
+                ],
+            },
+        ],
+    },
+    {
+        "name": "Customer Success",
+        "sub_swarms": [
+            {
+                "name": "Zendesk",
+                "agents": [
+                    ("Ticket Triage Agent", "Classifies and routes incoming support tickets by priority and product area to the right team."),
+                    ("CSAT Monitor", "Tracks customer satisfaction scores and flags accounts showing declining satisfaction trends."),
+                    ("Knowledge Base Manager", "Identifies support gaps from ticket patterns and recommends new help articles to create."),
+                ],
+            },
+            {
+                "name": "Intercom",
+                "agents": [
+                    ("Onboarding Specialist", "Guides new users through onboarding flows and flags accounts showing early drop-off signals."),
+                    ("Proactive Outreach Agent", "Triggers targeted messages based on product usage signals and customer health score changes."),
+                    ("NPS Analyst", "Analyzes net promoter score survey responses and categorizes feedback by theme and segment."),
+                ],
+            },
+            {
+                "name": "Gainsight",
+                "agents": [
+                    ("Health Score Monitor", "Tracks customer health scores and alerts CSMs when accounts trend toward risk status."),
+                    ("QBR Prep Assistant", "Prepares quarterly business review materials by pulling usage, support, and adoption data."),
+                    ("Renewal Risk Detector", "Identifies renewal risk signals and surfaces accounts needing immediate CSM attention."),
+                ],
+            },
+        ],
+    },
+    {
+        "name": "Operations",
+        "sub_swarms": [
+            {
+                "name": "Slack",
+                "agents": [
+                    ("Alert Router", "Monitors operational alerts and routes critical notifications to the appropriate Slack channels."),
+                    ("Status Update Bot", "Compiles and posts daily operational status summaries to relevant Slack channels."),
+                    ("Incident Coordinator", "Coordinates incident response by tracking action items and keeping stakeholders updated."),
+                ],
+            },
+            {
+                "name": "Notion",
+                "agents": [
+                    ("Documentation Manager", "Identifies stale Notion pages and prompts owners to review and update documentation."),
+                    ("Project Tracker", "Monitors project databases and surfaces at-risk deliverables and missed deadlines."),
+                    ("Meeting Notes Compiler", "Extracts action items from meeting notes and tracks completion status across teams."),
+                ],
+            },
+            {
+                "name": "Asana",
+                "agents": [
+                    ("Task Prioritization Agent", "Reviews task queues and recommends prioritization based on deadlines and dependencies."),
+                    ("Capacity Planner", "Analyzes team workload and surfaces capacity constraints before they become delivery blockers."),
+                    ("Cross-team Dependencies Monitor", "Tracks cross-team task dependencies and flags blocking items needing resolution."),
+                ],
+            },
+        ],
+    },
+]
+
+
+async def _seed_org_defaults(db: AsyncSession, org_id: object) -> None:
+    """Create the default 5 swarms, 3 sub-swarms each, and 3 system agents per sub-swarm."""
+    from app.models.agent import Agent, AgentVersion
+    from app.models.business_unit import BusinessUnit
+
+    for swarm_def in _SEED_STRUCTURE:
+        parent_bu = BusinessUnit(org_id=org_id, name=swarm_def["name"])
+        db.add(parent_bu)
+        await db.flush()
+
+        for sub_def in swarm_def["sub_swarms"]:
+            sub_bu = BusinessUnit(org_id=org_id, name=sub_def["name"], parent_id=parent_bu.id)
+            db.add(sub_bu)
+            await db.flush()
+
+            for agent_name, agent_desc in sub_def["agents"]:
+                agent = Agent(
+                    business_unit_id=sub_bu.id,
+                    name=agent_name,
+                    description=agent_desc,
+                    status="published",
+                    is_system=True,
+                )
+                db.add(agent)
+                await db.flush()
+                db.add(AgentVersion(
+                    agent_id=agent.id,
+                    version_number=1,
+                    prompt=agent_desc,
+                    graph_definition=None,
+                    tools=[],
+                ))
+
 
 # ── Org CRUD ──────────────────────────────────────────────────────────────
 
@@ -74,6 +259,9 @@ async def create_org(
     # Seed the owner's email domain so teammates auto-join on sign-in
     domain = user.email.lower().split("@")[-1]
     db.add(OrgEmailDomain(org_id=org.id, domain=domain))
+
+    # Seed default swarms, sub-swarms, and system agents
+    await _seed_org_defaults(db, org.id)
 
     await db.commit()
     await db.refresh(org)
