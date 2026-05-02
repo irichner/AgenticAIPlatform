@@ -63,6 +63,30 @@ async def _ollama_warmup():
         pass
 
 
+async def _mark_orphaned_runs_failed():
+    """On startup, mark any runs still in pending/running state as failed.
+    These are orphaned from a previous server process that was killed mid-run."""
+    from datetime import datetime, timezone
+    from app.db.engine import AsyncSessionLocal as db_session
+    from app.models.run import Run
+    from sqlalchemy import select as sa_select
+
+    try:
+        async with db_session() as db:
+            result = await db.execute(
+                sa_select(Run).where(Run.status.in_(["pending", "running"]))
+            )
+            orphans = result.scalars().all()
+            for run in orphans:
+                run.status = "failed"
+                run.error = "Run did not complete (server process was restarted)"
+                run.completed_at = datetime.now(timezone.utc)
+            if orphans:
+                await db.commit()
+    except Exception:
+        pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.core.checkpointer import get_checkpointer
@@ -77,6 +101,7 @@ async def lifespan(app: FastAPI):
     from app.agents.scheduler import run_scheduler_loop
     from app.core.data_retention import run_data_retention_loop
 
+    await _mark_orphaned_runs_failed()
     app.state.checkpointer = await get_checkpointer()
     task_provider = asyncio.create_task(_daily_provider_sync())
     task_warmup   = asyncio.create_task(_ollama_warmup())

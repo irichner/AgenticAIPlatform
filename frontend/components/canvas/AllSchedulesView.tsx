@@ -13,21 +13,48 @@ const STATUS_COLORS: Record<string, string> = {
   skipped: "text-text-3 bg-surface-2",
 };
 
-const TYPE_COLORS: Record<string, string> = {
-  cron:     "text-cyan bg-cyan/10",
-  interval: "text-amber bg-amber/10",
-  once:     "text-violet bg-violet/10",
-};
-
-function fmtDate(iso: string | null) {
+function fmtDate(iso: string | null | undefined) {
   if (!iso) return "—";
   return new Date(iso).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
 }
 
-function typeLabel(s: AgentSchedule): string {
-  if (s.schedule_type === "cron")     return s.cron_expression ?? "cron";
-  if (s.schedule_type === "interval") return `every ${s.interval_seconds}s`;
-  return `once at ${fmtDate(s.run_at)}`;
+function timeRelative(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const diffMs = new Date(iso).getTime() - Date.now();
+  const abs    = Math.abs(diffMs);
+  const future = diffMs > 0;
+  const mins   = Math.floor(abs / 60_000);
+  const hours  = Math.floor(abs / 3_600_000);
+  const days   = Math.floor(abs / 86_400_000);
+  if (abs < 30_000) return future ? "any moment" : "just now";
+  if (mins  <  60)  return future ? `in ${mins}m`              : `${mins}m ago`;
+  if (hours <  24)  return future ? `in ${hours}h ${mins % 60}m` : `${hours}h ago`;
+  if (days  <   7)  return future ? `in ${days}d`              : `${days}d ago`;
+  return fmtDate(iso);
+}
+
+function scheduleHumanLabel(s: AgentSchedule): string {
+  if (s.schedule_type === "cron" && s.cron_expression) {
+    const simple: Record<string, string> = {
+      "*/5 * * * *":  "Every 5 minutes",
+      "*/15 * * * *": "Every 15 minutes",
+      "*/30 * * * *": "Every 30 minutes",
+      "0 * * * *":    "Every hour",
+      "0 */2 * * *":  "Every 2 hours",
+      "0 */6 * * *":  "Every 6 hours",
+      "0 */12 * * *": "Every 12 hours",
+    };
+    return simple[s.cron_expression] ?? s.cron_expression;
+  }
+  if (s.schedule_type === "interval" && s.interval_seconds != null) {
+    const sec = s.interval_seconds;
+    if (sec >= 86400 && sec % 86400 === 0) return `Every ${sec / 86400}d`;
+    if (sec >= 3600  && sec % 3600  === 0) return `Every ${sec / 3600}h`;
+    if (sec >= 60    && sec % 60    === 0) return `Every ${sec / 60}m`;
+    return `Every ${sec}s`;
+  }
+  if (s.schedule_type === "once") return `Once: ${fmtDate(s.run_at)}`;
+  return "—";
 }
 
 // ── Summary bar ───────────────────────────────────────────────────────────────
@@ -56,6 +83,35 @@ function Stat({ label, value, color }: { label: string; value: number; color?: s
   );
 }
 
+// ── RunMini — compact next/last run display ────────────────────────────────────
+
+function RunMini({ label, iso, status }: {
+  label: string;
+  iso: string | null | undefined;
+  status?: string | null;
+}) {
+  const isNextRun = label === "Next run";
+  const isPast    = !!iso && new Date(iso).getTime() <= Date.now();
+  const valueCls  =
+    status === "success" ? "text-emerald" :
+    status === "failed"  ? "text-rose-400" :
+    "text-text-1";
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <p className="text-[9px] font-semibold text-text-3 uppercase tracking-widest">{label}</p>
+      <p className={cn("text-xs font-semibold tabular-nums", valueCls)}>
+        {iso
+          ? (isNextRun && isPast ? "Due soon" : timeRelative(iso))
+          : (isNextRun ? "Paused" : "Never")}
+      </p>
+      {iso && !(isNextRun && isPast) && (
+        <p className="text-[9px] text-text-3">{fmtDate(iso)}</p>
+      )}
+    </div>
+  );
+}
+
 // ── Schedule row ──────────────────────────────────────────────────────────────
 
 function ScheduleRow({
@@ -74,71 +130,115 @@ function ScheduleRow({
   justTriggered: boolean;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const hasFailed = schedule.failure_count > 0;
+  const dotCls =
+    !schedule.enabled            ? "bg-text-3/40" :
+    schedule.last_run_status === "running" ? "bg-violet animate-pulse" :
+    schedule.last_run_status === "failed"  ? "bg-rose-400" :
+    schedule.last_run_status === "success" ? "bg-emerald" :
+    "bg-violet/50";
 
   return (
     <div className={cn(
-      "rounded-xl border p-3 flex flex-col gap-2 transition-colors",
-      schedule.enabled ? "border-border bg-surface-2/30" : "border-border/40 bg-surface-2/10 opacity-60",
+      "rounded-xl border flex flex-col gap-0 transition-all",
+      schedule.enabled
+        ? "border-border bg-surface-2/20 hover:border-border/80"
+        : "border-border/40 bg-surface-2/10 opacity-60",
     )}>
-      {/* Top row */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-text-1 truncate">{schedule.name}</p>
-          <p className="text-[10px] text-text-3 truncate mt-0.5">
-            {agentName} · {typeLabel(schedule)} · {schedule.timezone}
-          </p>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <span className={cn("text-[9px] px-1.5 py-0.5 rounded font-medium uppercase tracking-wide", TYPE_COLORS[schedule.schedule_type] ?? "text-text-3 bg-surface-2")}>
-            {schedule.schedule_type}
-          </span>
+      <div className="p-3.5 flex flex-col gap-3">
+        {/* Name + agent + status */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-start gap-2 min-w-0">
+            <span className={cn("w-1.5 h-1.5 rounded-full mt-[5px] shrink-0", dotCls)} />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-text-1 truncate leading-snug">
+                {schedule.name}
+              </p>
+              <p className="text-[10px] text-text-3 truncate mt-0.5">
+                {agentName} · {scheduleHumanLabel(schedule)}
+              </p>
+            </div>
+          </div>
           {schedule.last_run_status && (
-            <span className={cn("text-[9px] px-1.5 py-0.5 rounded font-medium uppercase tracking-wide", STATUS_COLORS[schedule.last_run_status] ?? "")}>
+            <span className={cn(
+              "text-[9px] px-1.5 py-0.5 rounded-md font-semibold uppercase tracking-wide shrink-0 mt-0.5",
+              STATUS_COLORS[schedule.last_run_status] ?? "text-text-3 bg-surface-2",
+            )}>
               {schedule.last_run_status}
             </span>
           )}
         </div>
-      </div>
 
-      {/* Run stats */}
-      <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-        <p className="text-[10px] text-text-3">Next run</p>
-        <p className="text-[10px] text-text-2">{fmtDate(schedule.next_run_at)}</p>
-        <p className="text-[10px] text-text-3">Last run</p>
-        <p className="text-[10px] text-text-2">{fmtDate(schedule.last_run_at)}</p>
-        <p className="text-[10px] text-text-3">Runs / failures</p>
-        <p className="text-[10px] text-text-2">{schedule.run_count} / {schedule.failure_count}</p>
-      </div>
+        {/* Next / Last run inline */}
+        <div className="flex gap-6">
+          <RunMini
+            label="Next run"
+            iso={schedule.enabled ? schedule.next_run_at : null}
+          />
+          <RunMini
+            label="Last run"
+            iso={schedule.last_run_at}
+            status={schedule.last_run_status}
+          />
+          <div className="flex flex-col gap-0.5">
+            <p className="text-[9px] font-semibold text-text-3 uppercase tracking-widest">Runs</p>
+            <p className="text-xs font-semibold text-text-2 tabular-nums">
+              {schedule.run_count}
+              {hasFailed && (
+                <span className="text-rose-400 ml-1">· {schedule.failure_count}f</span>
+              )}
+            </p>
+          </div>
+        </div>
 
-      {/* Actions */}
-      <div className="flex items-center gap-1.5 pt-1 border-t border-border/40">
-        <button
-          onClick={onToggle}
-          className={cn(
-            "px-2 py-1 rounded-lg text-[10px] font-medium transition-colors",
-            schedule.enabled
-              ? "bg-surface-2 text-text-3 hover:text-rose-400"
-              : "bg-violet/10 text-violet hover:bg-violet/20",
+        {/* Actions */}
+        <div className="flex items-center gap-1.5 pt-1 border-t border-border/40">
+          <button
+            onClick={onToggle}
+            className={cn(
+              "px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors",
+              schedule.enabled
+                ? "bg-surface-2 text-text-3 hover:bg-rose-500/10 hover:text-rose-400"
+                : "bg-violet/10 text-violet hover:bg-violet/20",
+            )}
+          >
+            {schedule.enabled ? "Disable" : "Enable"}
+          </button>
+          <button
+            onClick={onTrigger}
+            disabled={justTriggered}
+            className={cn(
+              "px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors disabled:opacity-60",
+              justTriggered ? "bg-emerald/15 text-emerald" : "bg-emerald/8 text-emerald hover:bg-emerald/20",
+            )}
+          >
+            {justTriggered ? "Triggered ✓" : "Run now"}
+          </button>
+          <div className="flex-1" />
+          {confirmDelete ? (
+            <>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="px-2 py-1 rounded-lg text-[10px] text-text-3 hover:text-text-2 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={onDelete}
+                className="px-2 py-1 rounded-lg text-[10px] font-medium bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-colors"
+              >
+                Confirm delete
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="px-2 py-1 rounded-lg text-[10px] text-text-3 hover:text-rose-400 transition-colors"
+            >
+              Delete
+            </button>
           )}
-        >
-          {schedule.enabled ? "Disable" : "Enable"}
-        </button>
-        <button
-          onClick={onTrigger}
-          disabled={justTriggered}
-          className="px-2 py-1 rounded-lg text-[10px] font-medium bg-emerald/10 text-emerald hover:bg-emerald/20 disabled:opacity-40 transition-colors"
-        >
-          {justTriggered ? "Triggered ✓" : "Run now"}
-        </button>
-        <div className="flex-1" />
-        {confirmDelete ? (
-          <>
-            <button onClick={() => setConfirmDelete(false)} className="px-2 py-1 rounded-lg text-[10px] text-text-3 hover:text-text-2 transition-colors">Cancel</button>
-            <button onClick={onDelete} className="px-2 py-1 rounded-lg text-[10px] font-medium bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-colors">Confirm</button>
-          </>
-        ) : (
-          <button onClick={() => setConfirmDelete(true)} className="px-2 py-1 rounded-lg text-[10px] text-text-3 hover:text-rose-400 transition-colors">Delete</button>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -206,9 +306,8 @@ export function AllSchedulesView({ agents, orgKey }: AllSchedulesViewProps) {
     { key: "all",      label: "All" },
     { key: "enabled",  label: "Enabled" },
     { key: "disabled", label: "Disabled" },
-    { key: "cron",     label: "Cron" },
-    { key: "interval", label: "Interval" },
-    { key: "once",     label: "Once" },
+    { key: "cron",     label: "Recurring" },
+    { key: "once",     label: "One-time" },
   ];
 
   return (

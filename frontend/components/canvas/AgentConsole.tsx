@@ -304,10 +304,17 @@ export function AgentConsole({ activeAgentId, onRunComplete, onActiveNodeChange,
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
   const [historyRunId, setHistoryRunId] = useState<string | null>(null);
 
-  const { data: pastRuns = [] } = useSWR<Run[]>(
+  const { data: pastRuns = [], mutate: mutatePastRuns } = useSWR<Run[]>(
     activeAgentId ? ["runs", activeAgentId] : null,
     () => api.runs.list(activeAgentId!),
     { refreshInterval: isRunning ? 0 : 5000 },
+  );
+
+  // Poll the run status every 2s while running — fallback if SSE misses the complete/error event
+  const { data: polledRun } = useSWR<Run>(
+    currentRunId && isRunning ? ["run", currentRunId] : null,
+    () => api.runs.get(currentRunId!),
+    { refreshInterval: 2000, dedupingInterval: 0 },
   );
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -315,23 +322,15 @@ export function AgentConsole({ activeAgentId, onRunComplete, onActiveNodeChange,
 
   // Clear console and reset auto-load flag when the active agent changes
   useEffect(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setIsRunning(false);
     setEvents([]);
     setLatestState(null);
     setCurrentRunId(null);
     setHistoryRunId(null);
     autoLoadedRef.current = null;
   }, [activeAgentId]);
-
-  // Auto-load the most recent completed run on first mount / agent switch
-  useEffect(() => {
-    if (!activeAgentId || autoLoadedRef.current === activeAgentId) return;
-    if (isRunning || pastRuns.length === 0) return;
-    const latest = pastRuns.find((r) => r.status === "completed");
-    if (latest) {
-      autoLoadedRef.current = activeAgentId;
-      setHistoryRunId(latest.id);
-    }
-  }, [activeAgentId, pastRuns, isRunning]);
 
   // Auto-scroll to bottom when new events arrive
   useEffect(() => {
@@ -358,12 +357,100 @@ export function AgentConsole({ activeAgentId, onRunComplete, onActiveNodeChange,
     if (complete?.output) setLatestState(complete.output);
   }, [events]);
 
+  // Fallback: when poll detects run finished but SSE hasn't delivered complete/error yet
+  useEffect(() => {
+    if (!polledRun || !isRunning) return;
+    if (polledRun.status !== "completed" && polledRun.status !== "failed") return;
+    const out = polledRun.output as Record<string, unknown> | null;
+    if (polledRun.status === "completed") {
+      setEvents((prev) => {
+        if (prev.some((e) => e.event === "complete")) return prev;
+        return [...prev, { event: "complete", run_id: polledRun.id, output: out ?? {} }];
+      });
+    } else {
+      setEvents((prev) => {
+        if (prev.some((e) => e.event === "error")) return prev;
+        return [...prev, { event: "error", run_id: polledRun.id, error: polledRun.error ?? "Run failed" }];
+      });
+    }
+    setIsRunning(false);
+    abortRef.current?.abort();
+    abortRef.current = null;
+    mutatePastRuns();
+    onRunComplete?.();
+  }, [polledRun, isRunning, onRunComplete, mutatePastRuns]);
+
   const stopRun = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
     setIsRunning(false);
     onActiveNodeChange?.(null);
   }, [onActiveNodeChange]);
+
+  const connectToStream = useCallback((runId: string) => {
+    const ac = new AbortController();
+    abortRef.current = ac;
+
+    (async () => {
+      try {
+        const orgId = typeof window !== "undefined" ? localStorage.getItem("lanara_org_id") : null;
+        const headers: Record<string, string> = { Accept: "text/event-stream", "Cache-Control": "no-cache" };
+        if (orgId) headers["X-Org-Id"] = orgId;
+
+        const res = await fetch(`/api/runs/${runId}/stream`, { headers, signal: ac.signal });
+        if (!res.ok || !res.body) {
+          throw new Error(`Stream ${res.status}: ${await res.text().catch(() => res.statusText)}`);
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        const SSE_SEP = /\r\n\r\n|\n\n/;
+
+        const processChunk = (chunk: string) => {
+          const dataLine = chunk.split(/\r?\n/).find((l) => l.startsWith("data: "));
+          if (!dataLine) return false;
+          const raw = dataLine.slice(6).trim();
+          if (!raw) return false;
+          try {
+            const data: AgentEvent = JSON.parse(raw);
+            setEvents((prev) => {
+              if (data.event === "start" && prev.some((e) => e.event === "start")) return prev;
+              return [...prev, data];
+            });
+            if (data.event === "complete" || data.event === "error") {
+              setIsRunning(false);
+              abortRef.current = null;
+              mutatePastRuns();
+              onRunComplete?.();
+              return true;
+            }
+          } catch { /* ignore parse errors */ }
+          return false;
+        };
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (value) buf += decoder.decode(value, { stream: !done });
+
+          const parts = buf.split(SSE_SEP);
+          buf = done ? "" : (parts.pop() ?? "");
+
+          for (const chunk of parts) {
+            if (processChunk(chunk)) return;
+          }
+
+          if (done) break;
+        }
+        // Stream closed without terminal event — polling fallback will catch it
+      } catch (err) {
+        if ((err as Error).name === "AbortError") return;
+        setEvents((prev) => [...prev, { event: "error", run_id: runId, error: String(err) }]);
+        setIsRunning(false);
+        abortRef.current = null;
+      }
+    })();
+  }, [onRunComplete, mutatePastRuns]);
 
   const startRun = useCallback(async (message: string) => {
     if (!activeAgentId || isRunning) return;
@@ -375,78 +462,45 @@ export function AgentConsole({ activeAgentId, onRunComplete, onActiveNodeChange,
     setHistoryRunId(null);
     onRunStarted?.();
 
-    autoLoadedRef.current = activeAgentId; // prevent auto-load from overwriting live run
-    const startEv: AgentEvent = { event: "start", run_id: "" };
-    setEvents([startEv]);
+    autoLoadedRef.current = activeAgentId;
+    setEvents([{ event: "start", run_id: "" }]);
 
     try {
       const run = await api.runs.create(activeAgentId, message.trim());
       setCurrentRunId(run.id);
-
-      const ac = new AbortController();
-      abortRef.current = ac;
-
-      // Use fetch instead of EventSource so we can send X-Org-Id and auth headers
-      (async () => {
-        try {
-          const orgId = typeof window !== "undefined" ? localStorage.getItem("lanara_org_id") : null;
-          const headers: Record<string, string> = { Accept: "text/event-stream", "Cache-Control": "no-cache" };
-          if (orgId) headers["X-Org-Id"] = orgId;
-
-          const res = await fetch(`/api/runs/${run.id}/stream`, { headers, signal: ac.signal });
-          if (!res.ok || !res.body) {
-            throw new Error(`Stream ${res.status}: ${await res.text().catch(() => res.statusText)}`);
-          }
-
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let buf = "";
-
-          const SSE_SEP = /\r\n\r\n|\n\n/;
-
-          const processChunk = (chunk: string) => {
-            const dataLine = chunk.split(/\r?\n/).find((l) => l.startsWith("data: "));
-            if (!dataLine) return false;
-            const raw = dataLine.slice(6).trim();
-            if (!raw) return false;
-            try {
-              const data: AgentEvent = JSON.parse(raw);
-              setEvents((prev) => [...prev, data]);
-              if (data.event === "complete" || data.event === "error") {
-                setIsRunning(false);
-                abortRef.current = null;
-                onRunComplete?.();
-                return true; // signal: done
-              }
-            } catch { /* ignore parse errors */ }
-            return false;
-          };
-
-          while (true) {
-            const { done, value } = await reader.read();
-            if (value) buf += decoder.decode(value, { stream: !done });
-
-            const parts = buf.split(SSE_SEP);
-            buf = done ? "" : (parts.pop() ?? "");
-
-            for (const chunk of parts) {
-              if (processChunk(chunk)) return;
-            }
-
-            if (done) break;
-          }
-        } catch (err) {
-          if ((err as Error).name === "AbortError") return;
-          setEvents((prev) => [...prev, { event: "error", run_id: run.id, error: String(err) }]);
-          setIsRunning(false);
-          abortRef.current = null;
-        }
-      })();
+      connectToStream(run.id);
     } catch (err) {
       setEvents((prev) => [...prev, { event: "error", run_id: "", error: String(err) }]);
       setIsRunning(false);
     }
-  }, [activeAgentId, isRunning, onRunComplete]);
+  }, [activeAgentId, isRunning, onRunStarted, connectToStream]);
+
+  // Auto-load latest completed run, or reconnect to an in-progress run, on agent switch
+  useEffect(() => {
+    if (!activeAgentId || autoLoadedRef.current === activeAgentId || pastRuns.length === 0) return;
+
+    const STALE_MS = 30 * 60 * 1000;
+    const inProgress = pastRuns.find(
+      (r) => (r.status === "running" || r.status === "pending")
+        && Date.now() - new Date(r.created_at).getTime() < STALE_MS,
+    );
+    if (inProgress) {
+      autoLoadedRef.current = activeAgentId;
+      setCurrentRunId(inProgress.id);
+      setHistoryRunId(null);
+      setIsRunning(true);
+      setEvents([{ event: "start", run_id: inProgress.id }]);
+      setStartedAt(Date.now());
+      connectToStream(inProgress.id);
+      return;
+    }
+
+    const latest = pastRuns.find((r) => r.status === "completed");
+    if (latest) {
+      autoLoadedRef.current = activeAgentId;
+      setHistoryRunId(latest.id);
+    }
+  }, [activeAgentId, pastRuns, connectToStream]);
 
   // Fire a run when the parent requests one
   useEffect(() => {
