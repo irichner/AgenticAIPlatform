@@ -1,0 +1,20 @@
+# Test harness dependencies — install alongside backend/requirements.txt
+# pip install -r backend/requirements.txt -r tests/requirements.txt
+
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+
+# Schema drift detection
+deepdiff>=7.0.0
+
+# Integration tests: mock server + HTTP client
+uvicorn[standard]>=0.30.0
+fastapi>=0.115.0   # already in backend, listed for clarity
+httpx>=0.27.0      # already in backend, listed for clarity
+
+# Integration tests: Docker container management
+testcontainers>=4.0.0
+
+# Eval tier: AI enhancement + embeddings
+# anthropic — already in backend/requirements.txt
+# openai — already in backend/requirements.txt

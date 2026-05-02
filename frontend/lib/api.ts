@@ -122,6 +122,7 @@ export interface AgentVersion {
   version_number: number;
   prompt: string | null;
   tools: string[] | null;
+  graph_definition: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -472,6 +473,14 @@ export interface TableInfo {
   has_org_id: boolean;
 }
 
+export interface AgentToolAllowlistEntry {
+  id: string;
+  agent_id: string;
+  mcp_server_id: string;
+  mcp_tool_id: string;
+  created_at: string;
+}
+
 export interface PlatformSettingOut {
   key: string;
   label: string;
@@ -780,6 +789,8 @@ export const api = {
       req<Agent>("POST", `/agents/prebuilt/${agentType}?business_unit_id=${businessUnitId}`),
     publish: (agentId: string) =>
       req<Agent>("POST", `/agents/${agentId}/publish`),
+    delete: (agentId: string) =>
+      req<void>("DELETE", `/agents/${agentId}`),
   },
 
   runs: {
@@ -1003,6 +1014,13 @@ export const api = {
     }>) => req<AgentDbPolicy>("PUT", `/agent-db-policies/${id}`, payload),
     delete: (id: string) => req<void>("DELETE", `/agent-db-policies/${id}`),
     toggle: (id: string) => req<AgentDbPolicy>("POST", `/agent-db-policies/${id}/toggle`),
+  },
+
+  agentToolAllowlist: {
+    list: (agentId: string) =>
+      req<AgentToolAllowlistEntry[]>("GET", `/agent-tool-allowlist?agent_id=${agentId}`),
+    set: (agentId: string, toolIds: string[]) =>
+      req<AgentToolAllowlistEntry[]>("PUT", "/agent-tool-allowlist", { agent_id: agentId, mcp_tool_ids: toolIds }),
   },
 
   workflows: {

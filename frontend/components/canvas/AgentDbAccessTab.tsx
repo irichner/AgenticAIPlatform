@@ -13,6 +13,25 @@ const labelCls = "text-xs font-medium text-text-3 uppercase tracking-widest";
 
 const DB_OPS = ["select", "insert", "update", "delete"] as const;
 
+const TABLE_DESCRIPTIONS: Record<string, string> = {
+  agents:               "AI agents configured in your workspace — their name, status, model, and settings.",
+  business_units:       "Swarms (business units) that group related agents together.",
+  agent_groups:         "Sub-groups within a swarm for organising agents.",
+  agent_runs:           "Execution history for agent runs — inputs, outputs, status, and timing.",
+  agent_schedules:      "Scheduled triggers that run agents automatically on a cron or interval.",
+  agent_db_policies:    "Per-agent database access rules controlling which tables and operations are allowed.",
+  agent_tool_allowlist: "Allowlist of MCP tools each agent is permitted to call.",
+  mcp_servers:          "Connected MCP (Model Context Protocol) servers providing external tool integrations.",
+  mcp_tools:            "Individual tools exposed by MCP servers, callable by agents.",
+  contacts:             "CRM contacts — names, emails, companies, and communication history.",
+  deals:                "Sales deals with stages, amounts, close dates, and owner assignments.",
+  accounts:             "Company accounts linked to contacts and deals.",
+  activities:           "Sales activities such as calls, emails, and meetings logged against contacts or deals.",
+  commissions:          "Commission records for sales reps — amounts, deal links, and payout status.",
+  users:                "User accounts in your organisation.",
+  organisations:        "Top-level tenant organisations (your company and customers).",
+};
+
 const OP_COLORS: Record<string, string> = {
   select: "text-cyan bg-cyan/10",
   insert: "text-emerald bg-emerald/10",
@@ -145,14 +164,33 @@ export function AgentDbAccessTab({ agentId }: Props) {
             {availableTables.length === 0 ? (
               <p className="text-xs text-text-3 italic">All tables already granted.</p>
             ) : (
-              <select value={form.table_name} onChange={(e) => handleTableChange(e.target.value)} className={selectCls}>
-                <option value="">Select a table…</option>
+              <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto pr-0.5">
                 {availableTables.map((t: TableInfo) => (
-                  <option key={t.table_name} value={t.table_name}>
-                    {t.table_name}{t.has_org_id ? "" : " (global)"}
-                  </option>
+                  <button
+                    key={t.table_name}
+                    type="button"
+                    onClick={() => handleTableChange(t.table_name)}
+                    className={cn(
+                      "flex flex-col gap-0.5 p-2.5 rounded-xl border text-left transition-colors",
+                      form.table_name === t.table_name
+                        ? "border-violet bg-violet/8"
+                        : "border-border bg-surface-2/40 hover:border-border/80 hover:bg-surface-2/70",
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className={cn("text-xs font-mono font-semibold", form.table_name === t.table_name ? "text-violet" : "text-text-1")}>
+                        {t.table_name}
+                      </span>
+                      {!t.has_org_id && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber/10 text-amber font-medium uppercase tracking-wide shrink-0">global</span>
+                      )}
+                    </div>
+                    {TABLE_DESCRIPTIONS[t.table_name] && (
+                      <p className="text-[10px] text-text-3 leading-relaxed">{TABLE_DESCRIPTIONS[t.table_name]}</p>
+                    )}
+                  </button>
                 ))}
-              </select>
+              </div>
             )}
           </div>
 
@@ -292,6 +330,9 @@ function PolicyCard({
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-text-1 truncate">{policy.name}</p>
           <p className="text-[10px] text-text-3 font-mono mt-0.5">{policy.table_name}</p>
+          {TABLE_DESCRIPTIONS[policy.table_name] && (
+            <p className="text-[10px] text-text-2 mt-1 leading-relaxed">{TABLE_DESCRIPTIONS[policy.table_name]}</p>
+          )}
         </div>
         <span className="text-[10px] text-text-3 bg-surface-2 px-1.5 py-0.5 rounded shrink-0">
           max {policy.row_limit} rows

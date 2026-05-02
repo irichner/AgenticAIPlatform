@@ -1,0 +1,35 @@
+{
+  "spec": "petstore-v2.json",
+  "generated_at": "2026-05-02T03:53:56.632879+00:00",
+  "tool_count": 20,
+  "operation_ids": [
+    "add_pet",
+    "create_user",
+    "create_users_with_array_input",
+    "create_users_with_list_input",
+    "delete_order",
+    "delete_pet",
+    "delete_user",
+    "find_pets_by_status",
+    "find_pets_by_tags",
+    "get_inventory",
+    "get_order_by_id",
+    "get_pet_by_id",
+    "get_user_by_name",
+    "login_user",
+    "logout_user",
+    "place_order",
+    "update_pet",
+    "update_pet_with_form",
+    "update_user",
+    "upload_file"
+  ],
+  "param_breakdown": {
+    "path": 9,
+    "query": 4,
+    "header": 1,
+    "cookie": 0,
+    "body": 11
+  },
+  "parse_time_sec": 0.000746
+}

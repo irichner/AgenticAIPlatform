@@ -1,0 +1,6 @@
+{
+  "paths": "/usr/local/bin:/usr/bin:/bin",
+  "version": "1.0",
+  "name": "system-config",
+  "description": "This has a 'paths' key but is not an OpenAPI spec"
+}

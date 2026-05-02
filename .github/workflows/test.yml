@@ -1,0 +1,113 @@
+name: CI — OpenAPI Test Harness
+
+# Runs the UNIT tier on every push and PR.
+# Integration and eval tiers are wired below but disabled via 'if: false'.
+# To enable them, change 'if: false' to the desired condition (e.g. a schedule).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/app/services/openapi_detector.py'
+      - 'backend/app/services/openapi_importer.py'
+      - 'tests/**'
+      - 'scripts/refresh_fixtures.py'
+  pull_request:
+    paths:
+      - 'backend/app/services/openapi_detector.py'
+      - 'backend/app/services/openapi_importer.py'
+      - 'tests/**'
+      - 'scripts/refresh_fixtures.py'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # ── Unit tier (merge-blocking) ───────────────────────────────────────────────
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            tests/requirements.txt
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Install test dependencies
+        run: pip install -r tests/requirements.txt
+
+      - name: Run unit tests
+        run: pytest tests/unit/ -v --tb=short
+        # Baselines are committed to the repo after running scripts/refresh_fixtures.py.
+        # If baselines are absent, tests skip with a clear message rather than failing.
+
+  # ── Integration tier (NOT merge-blocking — change 'if: false' to enable) ─────
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    if: false  # Enable by removing this line or changing to a schedule/label condition.
+    needs: unit
+    services: {}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            tests/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install -r tests/requirements.txt
+
+      - name: Run integration tests
+        run: pytest tests/integration/ -v --tb=short
+
+  # ── Eval tier (NOT merge-blocking — run on schedule only) ────────────────────
+  # To activate on a nightly schedule, add the schedule trigger to 'on:' above
+  # and change 'if: false' to 'if: github.event_name == "schedule"'.
+  eval:
+    name: Eval tests (nightly)
+    runs-on: ubuntu-latest
+    if: false  # Activated by changing to: if: github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            tests/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install -r tests/requirements.txt
+
+      - name: Run eval tests
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: pytest tests/eval/ -v --tb=short
+
+      - name: Upload BASELINES.md as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-baselines
+          path: tests/eval/BASELINES.md

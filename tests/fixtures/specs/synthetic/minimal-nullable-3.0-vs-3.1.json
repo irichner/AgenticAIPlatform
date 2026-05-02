@@ -1,0 +1,45 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Nullable 3.0 vs 3.1 Test", "version": "1.0.0" },
+  "paths": {
+    "/items/{id}": {
+      "put": {
+        "operationId": "updateItem",
+        "summary": "Update item — tests nullable field handling",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name_3_0_style": {
+                    "type": "string",
+                    "nullable": true,
+                    "description": "OpenAPI 3.0 nullable style"
+                  },
+                  "name_3_1_style": {
+                    "type": ["string", "null"],
+                    "description": "OpenAPI 3.1 nullable style"
+                  },
+                  "count": { "type": "integer" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated" }
+        }
+      }
+    }
+  }
+}

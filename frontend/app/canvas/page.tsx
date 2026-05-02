@@ -4,14 +4,18 @@ import { useState, useRef, Suspense, useEffect, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import useSWR from "swr";
 import { Server } from "lucide-react";
+import { Group as PanelGroup, Panel, Separator as PanelResizeHandle, usePanelRef, type PanelImperativeHandle } from "react-resizable-panels";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { SwarmList } from "@/components/canvas/SwarmList";
-import { AllSchedulesView } from "@/components/canvas/AllSchedulesView";
 import { AgentSchedulesTab } from "@/components/canvas/AgentSchedulesTab";
 import { AgentDbAccessTab } from "@/components/canvas/AgentDbAccessTab";
+import { AgentToolsTab } from "@/components/canvas/AgentToolsTab";
+import { AgentPromptTab } from "@/components/canvas/AgentPromptTab";
+import { AgentGraphTab } from "@/components/canvas/AgentGraphTab";
+import { AgentConsole } from "@/components/canvas/AgentConsole";
 import { api, type BusinessUnit, type Agent, type AgentGroup, type AiModel, type McpServer } from "@/lib/api";
 import { useAuth } from "@/contexts/auth";
-import { getOrgItem, setOrgItem, removeOrgItem } from "@/lib/org-storage";
+import { getOrgItem, setOrgItem } from "@/lib/org-storage";
 import { cn } from "@/lib/cn";
 
 // ── Shared field styles ───────────────────────────────────────────────────────
@@ -245,11 +249,7 @@ function AgentCreatePanel({ businessUnits, groups, aiModels, mcpServers, default
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-    <div className="relative w-[800px] max-h-[88vh] flex flex-col glass border border-border rounded-2xl shadow-2xl overflow-hidden">
+    <div className="flex flex-col h-full overflow-hidden bg-surface-0">
       {/* Header */}
       <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
         <span className="text-base font-semibold text-text-1">New Agent</span>
@@ -400,7 +400,6 @@ function AgentCreatePanel({ businessUnits, groups, aiModels, mcpServers, default
         </div>
       </div>
     </div>
-    </div>
   );
 }
 
@@ -414,30 +413,26 @@ interface AgentPropertiesPanelProps {
   allGroups: AgentGroup[];
   aiModels: AiModel[];
   mcpServers: McpServer[];
+  activeNodeId: string | null;
+  hasRunStarted: boolean;
   onClose: () => void;
-  onUpdated: () => void;
-  onRun: (agentId: string) => void;
+  onSaved: () => void;
+  onDeleted: () => void;
+  onRun: (agentId: string, message: string) => void;
 }
 
-type AgentTab = "config" | "schedules" | "database";
+type AgentTab = "profile" | "schedules" | "memory" | "mcp" | "instructions" | "graph";
 
-function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpServers, onClose, onUpdated, onRun }: AgentPropertiesPanelProps) {
+function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpServers, activeNodeId, hasRunStarted, onClose, onSaved, onDeleted, onRun }: AgentPropertiesPanelProps) {
   const { currentOrg } = useAuth();
   const orgId = currentOrg?.id ?? null;
-  const [activeTab, setActiveTab]      = useState<AgentTab>("config");
+  const [activeTab, setActiveTab]      = useState<AgentTab>("profile");
   const [name, setName]               = useState(agent.name);
   const [description, setDescription] = useState(agent.description ?? "");
   const [buId, setBuId]               = useState(agent.business_unit_id);
   const [groupId, setGroupId]         = useState(agent.group_id ?? "");
   const [modelId, setModelId]         = useState(agent.model_id ?? "");
   const [status, setStatus]           = useState(agent.status);
-  const [prompt, setPrompt]           = useState<string>(() => {
-    try {
-      const raw = getOrgItem(orgId, AGENT_FORM_SUBKEY(agent.id));
-      if (raw) { const s = JSON.parse(raw); if (s.prompt !== undefined) return s.prompt as string; }
-    } catch { /* ignore */ }
-    return "";
-  });
   const [mcpIds, setMcpIds]           = useState<string[]>(agent.mcp_servers?.map((s) => s.id) ?? []);
 
   // Inline swarm creation
@@ -456,7 +451,12 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
   const effectiveGroups = [...allGroups, ...extraGroups];
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState<string | null>(null);
-  const promptFromStorage = useRef(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteInput, setDeleteInput]     = useState("");
+  const [deleting, setDeleting]           = useState(false);
+  const [runMessage, setRunMessage]       = useState("");
+  const [prompt, setPrompt]               = useState<string>("");
+  const hasStoredPromptRef                = useRef(false);
 
   const { data: versions, mutate: mutateVersions } = useSWR(
     ["agent-versions", agent.id],
@@ -464,7 +464,6 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
   );
 
   useEffect(() => {
-    promptFromStorage.current = false;
     setError(null);
     try {
       const raw = getOrgItem(orgId, AGENT_FORM_SUBKEY(agent.id));
@@ -477,10 +476,8 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
         setModelId(s.modelId   ?? (agent.model_id ?? ""));
         setStatus(s.status     ?? agent.status);
         setMcpIds(s.mcpIds     ?? (agent.mcp_servers?.map((m) => m.id) ?? []));
-        if (s.prompt !== undefined) {
-          setPrompt(s.prompt);
-          promptFromStorage.current = true;
-        }
+        if (s.prompt != null) { setPrompt(s.prompt); hasStoredPromptRef.current = true; }
+        else { setPrompt(""); hasStoredPromptRef.current = false; }
         return;
       }
     } catch { /* ignore corrupt storage */ }
@@ -491,13 +488,13 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
     setModelId(agent.model_id ?? "");
     setStatus(agent.status);
     setMcpIds(agent.mcp_servers?.map((m) => m.id) ?? []);
+    setPrompt("");
+    hasStoredPromptRef.current = false;
   }, [agent.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (promptFromStorage.current) return;
-    if (versions && versions.length > 0) {
-      setPrompt(versions[0].prompt ?? "");
-      promptFromStorage.current = true; // lock: don't overwrite user edits on future SWR revalidations
+    if (!hasStoredPromptRef.current) {
+      setPrompt(versions?.[0]?.prompt ?? "");
     }
   }, [versions]);
 
@@ -506,10 +503,10 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
       setOrgItem(
         orgId,
         AGENT_FORM_SUBKEY(agent.id),
-        JSON.stringify({ name, description, buId, groupId, modelId, status, prompt, mcpIds }),
+        JSON.stringify({ name, description, buId, groupId, modelId, status, mcpIds, prompt }),
       );
     } catch { /* ignore */ }
-  }, [agent.id, name, description, buId, groupId, modelId, status, prompt, mcpIds, orgId]);
+  }, [agent.id, name, description, buId, groupId, modelId, status, mcpIds, prompt, orgId]);
 
   const handleCreateSwarm = async () => {
     const n = newSwarmName.trim();
@@ -549,19 +546,11 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
   const buGroups  = effectiveGroups.filter((g) => g.business_unit_id === buId);
   const swarmName = allUnits.find((b) => b.id === buId)?.name ?? "";
 
-  const { generating, genError, generate } = useGenerateInstructions(
-    useCallback(() => name, [name]),
-    useCallback(() => description, [description]),
-    useCallback(() => swarmName, [swarmName]),
-    useCallback((p: string) => setPrompt(p), []),
-  );
-
   const handleSave = async () => {
     if (!name.trim()) return;
     setSaving(true);
     setError(null);
     try {
-      const savedPrompt = prompt.trim();
       await api.agents.update(agent.id, {
         name: name.trim(),
         description: description.trim() || undefined,
@@ -569,19 +558,17 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
         group_id: groupId || null,
         model_id: modelId || null,
         status,
-        prompt: savedPrompt || undefined,
         mcp_server_ids: mcpIds,
+        prompt: prompt.trim() || undefined,
       });
-      // Write saved state back to storage so it loads immediately on next open.
-      // Simpler and more reliable than trying to prime the SWR cache across unmount.
       try {
         setOrgItem(orgId, AGENT_FORM_SUBKEY(agent.id), JSON.stringify({
           name: name.trim(), description: description.trim() || "",
-          buId, groupId, modelId, status, prompt: savedPrompt, mcpIds,
+          buId, groupId, modelId, status, mcpIds, prompt: prompt.trim() || "",
         }));
       } catch { /* ignore */ }
       mutateVersions(undefined, { revalidate: true });
-      onUpdated();
+      onSaved();
     } catch (err) {
       setError(String(err));
     } finally {
@@ -589,37 +576,53 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
     }
   };
 
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await api.agents.delete(agent.id);
+      onDeleted();
+    } catch (err) {
+      setError(String(err));
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  };
+
   const fmt = (iso: string) =>
     new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-    <div className="relative w-[800px] max-h-[88vh] flex flex-col glass border border-border rounded-2xl shadow-2xl overflow-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
-        <span className="text-base font-semibold text-text-1">Agent Properties</span>
-        <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg text-text-3 hover:text-text-1 hover:bg-surface-2 transition-colors text-lg leading-none">×</button>
-      </div>
+  const visibleTabs = (["profile", "schedules", "memory", "mcp", "instructions", ...(hasRunStarted ? ["graph"] : [])] as AgentTab[]);
 
-      {/* Tab bar */}
-      <div className="flex border-b border-border shrink-0">
-        {(["config", "schedules", "database"] as AgentTab[]).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={cn(
-              "flex-1 py-2.5 text-xs font-medium transition-colors capitalize",
-              activeTab === tab
-                ? "text-violet border-b-2 border-violet"
-                : "text-text-3 hover:text-text-2",
-            )}
-          >
-            {tab === "database" ? "DB Access" : tab.charAt(0).toUpperCase() + tab.slice(1)}
-          </button>
-        ))}
+  return (
+    <div className="flex flex-col h-full overflow-hidden bg-surface-0">
+      {/* Tab bar with close button */}
+      <div className="flex items-center border-b border-border shrink-0 overflow-x-auto">
+        {visibleTabs.map((tab) => {
+          const label: Record<AgentTab, string> = {
+            profile: "Profile",
+            schedules: "Schedules",
+            memory: "Memory",
+            mcp: "MCP",
+            instructions: "Instructions",
+            graph: "Graph",
+          };
+          return (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              role="tab"
+              aria-selected={activeTab === tab}
+              className={cn(
+                "shrink-0 px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap",
+                activeTab === tab
+                  ? "text-violet border-b-2 border-violet"
+                  : "text-text-3 hover:text-text-2",
+              )}
+            >
+              {label[tab]}
+            </button>
+          );
+        })}
       </div>
 
       {activeTab === "schedules" && (
@@ -628,13 +631,41 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
         </div>
       )}
 
-      {activeTab === "database" && (
+      {activeTab === "memory" && (
         <div className="flex-1 overflow-y-auto">
           <AgentDbAccessTab agentId={agent.id} />
         </div>
       )}
 
-      {activeTab === "config" && <div className="flex flex-col gap-4 px-6 py-5 flex-1 overflow-y-auto">
+      {activeTab === "mcp" && (
+        <div className="flex-1 overflow-y-auto">
+          <AgentToolsTab
+            agentId={agent.id}
+            allMcpServers={mcpServers}
+            selectedServerIds={mcpIds}
+            onSelectedServerIdsChange={setMcpIds}
+          />
+        </div>
+      )}
+
+      {activeTab === "instructions" && (
+        <AgentPromptTab
+          agentId={agent.id}
+          agentName={name}
+          agentDescription={description}
+          agentSwarmName={swarmName}
+          prompt={prompt}
+          onPromptChange={setPrompt}
+        />
+      )}
+
+      {activeTab === "graph" && (
+        <div className="flex-1 overflow-hidden">
+          <AgentGraphTab versions={versions ?? []} activeNodeId={activeNodeId} />
+        </div>
+      )}
+
+      {activeTab === "profile" && <div className="flex flex-col gap-4 px-6 py-5 flex-1 overflow-y-auto">
         <div className="flex flex-col gap-1.5">
           <label className={labelCls}>Name</label>
           <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
@@ -643,83 +674,6 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
         <div className="flex flex-col gap-1.5">
           <label className={labelCls}>Description</label>
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className={`${inputCls} resize-none`} placeholder="What does this agent do?" />
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between">
-            <label className={labelCls}>Swarm</label>
-            <button
-              type="button"
-              onClick={() => { setCreatingSwarm((v) => !v); setNewSwarmName(""); }}
-              className="text-xs text-violet hover:text-violet/80 transition-colors"
-            >
-              {creatingSwarm ? "Cancel" : "+ New"}
-            </button>
-          </div>
-          {creatingSwarm ? (
-            <div className="flex gap-2">
-              <input
-                autoFocus
-                value={newSwarmName}
-                onChange={(e) => setNewSwarmName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") handleCreateSwarm(); if (e.key === "Escape") setCreatingSwarm(false); }}
-                placeholder="Swarm name…"
-                disabled={savingSwarm}
-                className={`${inputCls} flex-1`}
-              />
-              <button
-                onClick={handleCreateSwarm}
-                disabled={savingSwarm || !newSwarmName.trim()}
-                className="px-3 py-2 rounded-xl bg-violet/20 hover:bg-violet/35 disabled:opacity-40 text-violet text-xs font-medium transition-colors shrink-0"
-              >
-                {savingSwarm ? "…" : "Create"}
-              </button>
-            </div>
-          ) : (
-            <select value={buId} onChange={(e) => { setBuId(e.target.value); setGroupId(""); }} className={selectCls}>
-              {allUnits.map((bu) => <option key={bu.id} value={bu.id}>{bu.name}</option>)}
-            </select>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between">
-            <label className={labelCls}>Group</label>
-            {buId && (
-              <button
-                type="button"
-                onClick={() => { setCreatingGroup((v) => !v); setNewGroupName(""); }}
-                className="text-xs text-violet hover:text-violet/80 transition-colors"
-              >
-                {creatingGroup ? "Cancel" : "+ New"}
-              </button>
-            )}
-          </div>
-          {creatingGroup ? (
-            <div className="flex gap-2">
-              <input
-                autoFocus
-                value={newGroupName}
-                onChange={(e) => setNewGroupName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") handleCreateGroup(); if (e.key === "Escape") setCreatingGroup(false); }}
-                placeholder="Group name…"
-                disabled={savingGroup}
-                className={`${inputCls} flex-1`}
-              />
-              <button
-                onClick={handleCreateGroup}
-                disabled={savingGroup || !newGroupName.trim()}
-                className="px-3 py-2 rounded-xl bg-violet/20 hover:bg-violet/35 disabled:opacity-40 text-violet text-xs font-medium transition-colors shrink-0"
-              >
-                {savingGroup ? "…" : "Create"}
-              </button>
-            </div>
-          ) : (
-            <select value={groupId} onChange={(e) => setGroupId(e.target.value)} className={selectCls} disabled={buGroups.length === 0}>
-              <option value="">No group</option>
-              {buGroups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-            </select>
-          )}
         </div>
 
         <div className="flex flex-col gap-1.5">
@@ -741,24 +695,6 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
           </select>
         </div>
 
-        <McpPicker mcpServers={mcpServers} selectedIds={mcpIds} onChange={setMcpIds} />
-
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center justify-between">
-            <label className={labelCls}>Instructions</label>
-            <button
-              type="button"
-              onClick={generate}
-              disabled={generating || !name.trim()}
-              className="flex items-center gap-1 text-xs text-violet hover:text-violet/80 disabled:opacity-40 transition-colors"
-            >
-              <span>{generating ? "Generating…" : "✦ Generate with AI"}</span>
-            </button>
-          </div>
-          <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={6} className={`${inputCls} resize-none`} placeholder="System prompt or instructions for this agent…" />
-          {genError && <p className="text-xs text-rose-400">{genError}</p>}
-        </div>
-
         <div className="flex flex-col gap-1 pt-1 border-t border-border">
           <p className="text-xs text-text-3">Created {fmt(agent.created_at)}</p>
           <p className="text-xs text-text-3">Updated {fmt(agent.updated_at)}</p>
@@ -766,80 +702,83 @@ function AgentPropertiesPanel({ agent, businessUnits, allGroups, aiModels, mcpSe
 
       </div>}
 
-      {activeTab === "config" && (
-        <div className="flex flex-col gap-2 px-6 py-4 border-t border-border shrink-0">
+      {activeTab !== "graph" && (
+        <div className="flex flex-col gap-2 px-4 py-3 border-t border-border shrink-0">
           {error && <p className="text-xs text-rose-400 bg-rose-500/10 rounded-lg px-3 py-2">{error}</p>}
-          <div className="flex gap-2">
-            {status === "published" && (
-              <button
-                onClick={() => onRun(agent.id)}
-                className="px-3 py-2 rounded-xl bg-emerald/15 hover:bg-emerald/25 text-emerald text-sm font-medium transition-colors"
-              >
-                Run
-              </button>
-            )}
-            <button onClick={onClose} className="flex-1 py-2 rounded-xl border border-border text-sm text-text-2 hover:text-text-1 hover:bg-surface-2 transition-colors">Cancel</button>
-            <button onClick={handleSave} disabled={saving || !name.trim()} className="flex-1 py-2 rounded-xl bg-violet/20 hover:bg-violet/35 disabled:opacity-40 text-violet text-sm font-medium transition-colors">
-              {saving ? "Saving…" : "Save"}
-            </button>
-          </div>
+          {confirmDelete ? (
+            <div className="flex flex-col gap-2 px-1 py-1 bg-rose-500/5 rounded-xl border border-rose-500/20 p-3">
+              <p className="text-xs text-rose-400">
+                Type <span className="font-semibold">{agent.name}</span> to confirm deletion.
+              </p>
+              <input
+                autoFocus
+                value={deleteInput}
+                onChange={(e) => setDeleteInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && deleteInput === agent.name) handleDelete();
+                  if (e.key === "Escape") { setConfirmDelete(false); setDeleteInput(""); }
+                }}
+                placeholder={agent.name}
+                className="w-full bg-surface-2 border border-rose-500/30 focus:border-rose-400 rounded-lg px-3 py-1.5 text-sm text-text-1 placeholder:text-text-3 outline-none"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setConfirmDelete(false); setDeleteInput(""); }}
+                  className="flex-1 py-1.5 rounded-lg border border-border text-xs text-text-2 hover:text-text-1 hover:bg-surface-2 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting || deleteInput !== agent.name}
+                  className="flex-1 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 disabled:opacity-40 text-rose-400 text-xs font-medium transition-colors"
+                >
+                  {deleting ? "Deleting…" : "Delete"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {status === "published" && (
+                <div className="flex items-center gap-2">
+                  <input
+                    value={runMessage}
+                    onChange={(e) => setRunMessage(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && runMessage.trim()) {
+                        onRun(agent.id, runMessage);
+                        setRunMessage("");
+                      }
+                    }}
+                    placeholder="Send a message to the agent…"
+                    className="flex-1 bg-surface-2 border border-border rounded-xl px-3 py-2 text-sm text-text-1 placeholder:text-text-3 outline-none focus:border-violet"
+                  />
+                  <button
+                    onClick={() => { onRun(agent.id, runMessage); setRunMessage(""); }}
+                    disabled={!runMessage.trim()}
+                    className="px-4 py-2 rounded-xl bg-emerald/15 hover:bg-emerald/25 disabled:opacity-40 text-emerald text-sm font-semibold transition-colors shrink-0"
+                  >
+                    Run
+                  </button>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <div className="flex-1" />
+                <button
+                  onClick={() => { setConfirmDelete(true); setDeleteInput(""); }}
+                  className="px-3 py-2 rounded-xl text-rose-400/70 hover:text-rose-400 hover:bg-rose-500/10 text-sm transition-colors"
+                >
+                  Delete
+                </button>
+                <button onClick={onClose} className="px-4 py-2 rounded-xl border border-border text-sm text-text-2 hover:text-text-1 hover:bg-surface-2 transition-colors">Cancel</button>
+                <button onClick={handleSave} disabled={saving || !name.trim()} className="px-4 py-2 rounded-xl bg-violet/20 hover:bg-violet/35 disabled:opacity-40 text-violet text-sm font-medium transition-colors">
+                  {saving ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
-    </div>
-    </div>
-  );
-}
-
-// ── Run drawer ────────────────────────────────────────────────────────────────
-
-interface RunDrawerProps {
-  agentId: string;
-  onClose: () => void;
-}
-
-function RunDrawer({ agentId, onClose }: RunDrawerProps) {
-  const [message, setMessage] = useState("");
-  const [events, setEvents]   = useState<string[]>([]);
-  const [running, setRunning] = useState(false);
-
-  const startRun = async () => {
-    if (!message.trim()) return;
-    setRunning(true);
-    setEvents([]);
-    try {
-      const run = await api.runs.create(agentId, message);
-      const es = new EventSource(`/api/runs/${run.id}/stream`);
-      es.onmessage = (e) => {
-        const data = JSON.parse(e.data);
-        if (data.content) setEvents((prev) => [...prev, data.content]);
-        if (data.event === "complete" || data.event === "error") { setRunning(false); es.close(); }
-      };
-      es.onerror = () => { setRunning(false); es.close(); };
-    } catch (err) {
-      setEvents([String(err)]);
-      setRunning(false);
-    }
-  };
-
-  return (
-    <div className="w-80 flex flex-col glass border-l border-border h-full">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <span className="text-sm font-semibold text-text-1">Run Agent</span>
-        <button onClick={onClose} className="text-text-3 hover:text-text-2 text-lg leading-none">×</button>
-      </div>
-      <div className="flex flex-col gap-3 p-4 flex-1 overflow-y-auto">
-        <textarea value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Enter input for the agent…" rows={4} className={`${inputCls} resize-none`} />
-        <button onClick={startRun} disabled={running || !message.trim()} className="w-full py-2 rounded-xl bg-violet/20 hover:bg-violet/35 disabled:opacity-40 text-violet text-sm font-medium transition-colors">
-          {running ? "Running…" : "Run"}
-        </button>
-        {events.length > 0 && (
-          <div className="space-y-2">
-            {events.map((ev, i) => (
-              <p key={i} className="text-xs text-text-2 bg-surface-2 rounded-lg p-2.5 whitespace-pre-wrap">{ev}</p>
-            ))}
-          </div>
-        )}
-      </div>
     </div>
   );
 }
@@ -849,10 +788,7 @@ function RunDrawer({ agentId, onClose }: RunDrawerProps) {
 type RightPanel =
   | { type: "create"; defaultBuId?: string }
   | { type: "properties"; agentId: string }
-  | { type: "run"; agentId: string }
   | null;
-
-type PageTab = "agents" | "schedules";
 
 const CANVAS_PANEL_SUBKEY = "canvas-panel";
 
@@ -861,7 +797,6 @@ function CanvasPageInner() {
   const { currentOrg } = useAuth();
   const orgKey = currentOrg?.id ?? null;
 
-  const [pageTab, setPageTab]   = useState<PageTab>("agents");
   const [rightPanel, setRightPanel] = useState<RightPanel>(
     searchParams.get("new") === "true" ? { type: "create" } : null,
   );
@@ -877,7 +812,7 @@ function CanvasPageInner() {
       const raw = getOrgItem(orgKey, CANVAS_PANEL_SUBKEY);
       if (!raw) return;
       const saved = JSON.parse(raw) as RightPanel;
-      if (saved?.type !== "run") setRightPanel(saved);
+      setRightPanel(saved);
     } catch { /* ignore */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgKey]);
@@ -886,8 +821,7 @@ function CanvasPageInner() {
   useEffect(() => {
     if (!orgKey) return;
     try {
-      const toSave = rightPanel?.type === "run" ? null : rightPanel;
-      setOrgItem(orgKey, CANVAS_PANEL_SUBKEY, JSON.stringify(toSave));
+      setOrgItem(orgKey, CANVAS_PANEL_SUBKEY, JSON.stringify(rightPanel));
     } catch { /* ignore */ }
   }, [rightPanel, orgKey]);
 
@@ -919,9 +853,47 @@ function CanvasPageInner() {
   const refresh = () => { mutateUnits(); mutateAgents(); mutateGroups(); };
 
   const selectedAgent =
-    rightPanel?.type === "properties" || rightPanel?.type === "run"
+    rightPanel?.type === "properties"
       ? (agents as Agent[]).find((a) => a.id === rightPanel.agentId) ?? null
       : null;
+
+  const activeAgentId = rightPanel?.type === "properties" ? rightPanel.agentId : null;
+  const [activeNodeId, setActiveNodeId] = useState<string | null>(null);
+  const [hasRunStarted, setHasRunStarted] = useState(false);
+  const [consoleCollapsed, setConsoleCollapsed] = useState(true);
+
+  // Start the console panel collapsed on mount
+  useEffect(() => { consolePanelRef.current?.collapse(); }, []);
+  const consolePanelRef = usePanelRef();
+
+  const [pendingRun, setPendingRun]   = useState<{ message: string; seq: number } | null>(null);
+  const runSeqRef                     = useRef(0);
+
+  const [leftNavWidth, setLeftNavWidth] = useState(432);
+  const leftNavDragging = useRef(false);
+  const leftNavDragStart = useRef({ x: 0, width: 432 });
+
+  const handleLeftNavDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    leftNavDragging.current = true;
+    leftNavDragStart.current = { x: e.clientX, width: leftNavWidth };
+    const onMove = (ev: MouseEvent) => {
+      if (!leftNavDragging.current) return;
+      const delta = ev.clientX - leftNavDragStart.current.x;
+      const next = Math.max(180, Math.min(600, leftNavDragStart.current.width + delta));
+      setLeftNavWidth(next);
+    };
+    const onUp = () => {
+      leftNavDragging.current = false;
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  }, [leftNavWidth]);
+
+  // Reset hasRunStarted when the selected agent changes
+  useEffect(() => { setHasRunStarted(false); }, [activeAgentId]);
 
   const rightPanelEl =
     rightPanel?.type === "create" ? (
@@ -936,71 +908,116 @@ function CanvasPageInner() {
       />
     ) : rightPanel?.type === "properties" && selectedAgent ? (
       <AgentPropertiesPanel
+        key={selectedAgent.id}
         agent={selectedAgent}
         businessUnits={units as BusinessUnit[]}
         allGroups={groups as AgentGroup[]}
         aiModels={aiModels as AiModel[]}
         mcpServers={mcpServers as McpServer[]}
+        activeNodeId={activeNodeId}
+        hasRunStarted={hasRunStarted}
         onClose={() => setRightPanel(null)}
-        onUpdated={() => { setRightPanel(null); refresh(); }}
-        onRun={(id) => setRightPanel({ type: "run", agentId: id })}
-      />
-    ) : rightPanel?.type === "run" ? (
-      <RunDrawer
-        agentId={rightPanel.agentId}
-        onClose={() => setRightPanel(null)}
+        onSaved={() => refresh()}
+        onDeleted={() => { setRightPanel(null); refresh(); }}
+        onRun={(_agentId, message) => {
+          consolePanelRef.current?.expand();
+          setConsoleCollapsed(false);
+          runSeqRef.current += 1;
+          setPendingRun({ message, seq: runSeqRef.current });
+        }}
       />
     ) : null;
+
+  const toggleConsole = () => {
+    if (consoleCollapsed) {
+      consolePanelRef.current?.expand();
+    } else {
+      consolePanelRef.current?.collapse();
+    }
+  };
 
   return (
     <div className="flex h-screen bg-surface-0 overflow-hidden">
       <Sidebar />
 
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        {/* Page-level tab bar */}
-        <div className="flex items-center gap-1 px-4 border-b border-border shrink-0 h-11">
-          {(["agents", "schedules"] as PageTab[]).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setPageTab(tab)}
-              className={cn(
-                "px-3 py-2 text-sm font-medium transition-colors capitalize rounded-lg",
-                pageTab === tab
-                  ? "text-violet bg-violet/8"
-                  : "text-text-3 hover:text-text-2 hover:bg-surface-2",
-              )}
+        {/* Main area: left nav + content, fixed horizontal split */}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* Left nav — agent list, drag-resizable */}
+          <div className="relative shrink-0 border-r border-border flex flex-col overflow-hidden" style={{ width: leftNavWidth }}>
+            <SwarmList
+              agents={agents as Agent[]}
+              groups={groups as AgentGroup[]}
+              selectedAgentId={activeAgentId}
+              runningAgentId={hasRunStarted ? activeAgentId : null}
+              orgId={orgKey}
+              onSelectAgent={(id) => setRightPanel({ type: "properties", agentId: id })}
+              onAddToSwarm={(buId) => setRightPanel({ type: "create", defaultBuId: buId })}
+              onRun={(id) => setRightPanel({ type: "properties", agentId: id })}
+              onRefresh={refresh}
+            />
+            {/* drag handle — wide click zone, thin visual line */}
+            <div
+              onMouseDown={handleLeftNavDragStart}
+              className="absolute top-0 right-0 w-4 h-full cursor-col-resize z-10 flex justify-end group"
             >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
-            </button>
-          ))}
-        </div>
+              <div className="w-px h-full bg-border group-hover:bg-violet/50 transition-colors" />
+            </div>
+          </div>
 
-        <div className="flex flex-1 overflow-hidden">
-          {pageTab === "agents" ? (
-            <div className="flex-1 overflow-hidden">
-              <SwarmList
-                agents={agents as Agent[]}
-                groups={groups as AgentGroup[]}
-                selectedAgentId={
-                  rightPanel?.type === "properties" ? rightPanel.agentId : null
-                }
-                orgId={orgKey}
-                onSelectAgent={(id) => setRightPanel({ type: "properties", agentId: id })}
-                onAddToSwarm={(buId) => setRightPanel({ type: "create", defaultBuId: buId })}
-                onRun={(id) => setRightPanel({ type: "run", agentId: id })}
-                onRefresh={refresh}
+          {/* Right: properties/create/empty + resizable console */}
+          <div className="flex-1 min-w-0 overflow-hidden h-full">
+            <PanelGroup orientation="vertical" className="h-full">
+          <Panel id="canvas-top" defaultSize="65%" minSize="15%">
+                <div className="h-full overflow-hidden" data-testid="agent-properties-panel">
+                  {rightPanelEl ?? (
+                    <div className="flex flex-col items-center justify-center h-full text-center gap-3">
+                      <p className="text-sm text-text-3">Select an agent to get started</p>
+                    </div>
+                  )}
+                </div>
+          </Panel>
+
+          {/* Console resize handle — hidden when console is collapsed */}
+          <PanelResizeHandle
+            className={cn(
+              "flex items-center justify-center h-2.5 bg-surface-2/60 border-y border-border hover:bg-violet/10 active:bg-violet/20 transition-colors cursor-row-resize shrink-0 group",
+              consoleCollapsed && "invisible pointer-events-none",
+            )}
+            aria-label="Resize console panel"
+            data-testid="panel-resize-handle"
+          >
+            {/* Three grip dots — visual affordance, pointer-events-none so they never intercept drags */}
+            <div className="flex items-center gap-1 pointer-events-none">
+              <div className="w-1 h-1 rounded-full bg-border group-hover:bg-violet/50 transition-colors" />
+              <div className="w-1 h-1 rounded-full bg-border group-hover:bg-violet/50 transition-colors" />
+              <div className="w-1 h-1 rounded-full bg-border group-hover:bg-violet/50 transition-colors" />
+            </div>
+          </PanelResizeHandle>
+
+          <Panel
+            id="canvas-console"
+            defaultSize="35%"
+            minSize="10%"
+            maxSize="80%"
+            collapsible
+            collapsedSize="0%"
+            panelRef={consolePanelRef}
+            onResize={(size) => setConsoleCollapsed(size.asPercentage === 0)}
+          >
+            <div className="h-full" data-testid="agent-console">
+              <AgentConsole
+                activeAgentId={activeAgentId}
+                onActiveNodeChange={setActiveNodeId}
+                onRunStarted={() => setHasRunStarted(true)}
+                isCollapsed={consoleCollapsed}
+                onToggleCollapse={toggleConsole}
+                triggerRun={pendingRun}
               />
             </div>
-          ) : (
-            <div className="flex-1 overflow-hidden">
-              <AllSchedulesView
-                agents={agents as Agent[]}
-                orgKey={orgKey}
-              />
-            </div>
-          )}
-
-          {rightPanelEl}
+          </Panel>
+        </PanelGroup>
+          </div>
         </div>
       </div>
     </div>

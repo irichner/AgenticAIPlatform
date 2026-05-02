@@ -1,0 +1,50 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "Vendor Extension Test", "version": "1.0.0" },
+  "paths": {
+    "/items": {
+      "get": {
+        "operationId": "listItems",
+        "summary": "List items",
+        "x-custom-tag": "list",
+        "x-rate-limit": 100,
+        "x-internal-only": false,
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "x-internal": true,
+            "schema": { "type": "integer", "default": 20 }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "x-pagination-cursor": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Item list" }
+        }
+      }
+    },
+    "/items/{id}": {
+      "put": {
+        "operationId": "updateItem",
+        "summary": "Update an item",
+        "x-idempotent": true,
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": { "description": "Updated" }
+        }
+      }
+    }
+  }
+}

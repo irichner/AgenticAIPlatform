@@ -1,7 +1,9 @@
 """Parse an OpenAPI 3.x spec and populate McpServer + McpTool records."""
 from __future__ import annotations
+import json
 import re
 import os
+from datetime import date, datetime
 from typing import Any
 
 import httpx
@@ -13,6 +15,16 @@ from app.models.mcp_tool import McpTool
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _short_desc(text: str | None, max_len: int = 120) -> str | None:
+    """Return first sentence of text, capped at max_len chars."""
+    if not text:
+        return None
+    first_line = text.split("\n")[0].strip()
+    sentence_end = first_line.find(". ")
+    short = first_line[: sentence_end + 1] if sentence_end != -1 else first_line
+    return short[:max_len] or None
+
 
 def slugify(name: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
@@ -84,6 +96,21 @@ def build_input_schema(operation: dict, path_item: dict) -> dict:
 
 # ── Spec fetcher ─────────────────────────────────────────────────────────────
 
+def _sanitize_spec(obj: Any) -> Any:
+    """Recursively convert non-JSON-serializable values (datetime, date) to strings.
+
+    PyYAML parses YAML date/datetime literals into Python objects; PostgreSQL's
+    JSONB driver will reject them without this pass.
+    """
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {k: _sanitize_spec(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_spec(v) for v in obj]
+    return obj
+
+
 async def fetch_spec(spec_url: str) -> dict:
     async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         resp = await client.get(spec_url, headers={"Accept": "application/json, application/yaml, text/yaml, */*"})
@@ -93,10 +120,12 @@ async def fetch_spec(spec_url: str) -> dict:
         if "yaml" in content_type or spec_url.endswith((".yaml", ".yml")):
             try:
                 import yaml  # type: ignore
-                return yaml.safe_load(text)
+                raw = yaml.safe_load(text)
             except ImportError:
                 raise ValueError("YAML spec detected but pyyaml is not installed. Install pyyaml or paste JSON instead.")
-        return resp.json()
+        else:
+            raw = resp.json()
+        return _sanitize_spec(raw)
 
 
 # ── Main importer ─────────────────────────────────────────────────────────────
@@ -147,7 +176,7 @@ async def import_openapi(
         name=name,
         url=mcp_url,
         transport="streamable_http",
-        description=description or spec.get("info", {}).get("description"),
+        description=description or _short_desc(spec.get("info", {}).get("description")),
         enabled=True,
         runtime_mode="dynamic",
         slug=final_slug,

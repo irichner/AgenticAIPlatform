@@ -1,0 +1,42 @@
+{
+  "openapi": "3.0.0",
+  "info": { "title": "Circular Ref Test", "version": "1.0.0" },
+  "components": {
+    "schemas": {
+      "Node": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer" },
+          "value": { "type": "string" },
+          "child": { "$ref": "#/components/schemas/Node" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/nodes/{id}": {
+      "get": {
+        "operationId": "getNode",
+        "summary": "Get a node (response references itself)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A node",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Node" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

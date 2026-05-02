@@ -1,0 +1,7 @@
+{
+  "error": "Not found",
+  "message": "The requested resource was not found",
+  "status": 404,
+  "timestamp": "2026-05-01T00:00:00Z",
+  "path": "/openapi.json"
+}

@@ -1934,7 +1934,7 @@ function McpServersTab() {
                             )}
                           </div>
                           <p className="text-xs text-text-3 font-mono mt-0.5 truncate">{s.url}</p>
-                          {s.description && <p className="text-xs text-text-3 mt-0.5">{s.description}</p>}
+                          {s.description && <p className="text-xs text-text-3 mt-0.5" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.description}</p>}
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
                           {s.runtime_mode === "dynamic" && s.tools.length > 0 && (

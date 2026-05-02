@@ -15,6 +15,7 @@ HIL: when a graph interrupt is detected the run status becomes
 from __future__ import annotations
 
 import json
+import time
 import uuid
 
 from datetime import datetime, timezone
@@ -30,8 +31,10 @@ from app.core.mcp_client import get_mcp_tools
 from app.core.rag import get_rag_context
 from app.core.redis_client import get_redis
 from app.models.agent import Agent, AgentVersion
+from app.models.agent_tool_allowlist import AgentToolAllowlist
 from app.models.approval_request import ApprovalRequest
 from app.models.business_unit import BusinessUnit
+from app.models.mcp_tool import McpTool
 from app.models.run import Run
 
 _COST_PER_1K = {
@@ -41,7 +44,7 @@ _COST_PER_1K = {
 }
 
 
-def _estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+def _estimate_cost(model: str | None, input_tokens: int, output_tokens: int) -> float:
     rates = _COST_PER_1K.get(model, {"input": 0.003, "output": 0.015})
     return (input_tokens / 1000) * rates["input"] + (output_tokens / 1000) * rates["output"]
 
@@ -112,6 +115,19 @@ async def execute_run(run_id: str) -> None:
 
             mcp_tools = await get_mcp_tools(agent.mcp_servers or [])
             db_agent_tools = await build_db_tools(str(agent.id), org_id, db) if org_id else []
+
+            # Apply per-agent MCP tool allowlist (no rows = all tools allowed)
+            allowlist_res = await db.execute(
+                select(AgentToolAllowlist.mcp_tool_id).where(AgentToolAllowlist.agent_id == agent.id)
+            )
+            allowed_tool_ids = list(allowlist_res.scalars())
+            if allowed_tool_ids:
+                allowed_names_res = await db.execute(
+                    select(McpTool.name).where(McpTool.id.in_(allowed_tool_ids))
+                )
+                allowed_names = set(allowed_names_res.scalars())
+                mcp_tools = [t for t in mcp_tools if t.name in allowed_names]
+
             tools = mcp_tools + db_agent_tools
 
             from app.core.checkpointer import get_checkpointer
@@ -153,22 +169,64 @@ async def execute_run(run_id: str) -> None:
                             interrupt_payload = intr.value if hasattr(intr, "value") else intr
                         break
 
+                    node_start = time.monotonic()
+                    await redis.publish(channel, json.dumps({
+                        "event": "node_enter",
+                        "run_id": run_id,
+                        "node": node_name,
+                    }))
+
                     if isinstance(node_state, dict):
                         if "usage" in node_state and node_state["usage"]:
                             accumulated_usage = node_state["usage"]
 
                         for msg in node_state.get("messages", []):
                             final_messages.append(msg)
-                            payload = {
-                                "event": "message",
-                                "run_id": run_id,
-                                "node": node_name,
-                                "type": type(msg).__name__,
-                                "content": msg.content if hasattr(msg, "content") else "",
-                            }
-                            if getattr(msg, "tool_calls", None):
-                                payload["tool_calls"] = [tc["name"] for tc in msg.tool_calls]
-                            await redis.publish(channel, json.dumps(payload))
+                            msg_type = type(msg).__name__
+                            if msg_type == "ToolMessage":
+                                await redis.publish(channel, json.dumps({
+                                    "event": "tool_response",
+                                    "run_id": run_id,
+                                    "node": node_name,
+                                    "tool_name": getattr(msg, "name", None),
+                                    "content": msg.content if hasattr(msg, "content") else "",
+                                }))
+                            elif getattr(msg, "tool_calls", None):
+                                for tc in msg.tool_calls:
+                                    await redis.publish(channel, json.dumps({
+                                        "event": "tool_call",
+                                        "run_id": run_id,
+                                        "node": node_name,
+                                        "tool_name": tc["name"],
+                                        "tool_args": tc.get("args", {}),
+                                    }))
+                            else:
+                                await redis.publish(channel, json.dumps({
+                                    "event": "message",
+                                    "run_id": run_id,
+                                    "node": node_name,
+                                    "type": msg_type,
+                                    "content": msg.content if hasattr(msg, "content") else "",
+                                }))
+
+                    node_latency_ms = round((time.monotonic() - node_start) * 1000)
+                    await redis.publish(channel, json.dumps({
+                        "event": "node_exit",
+                        "run_id": run_id,
+                        "node": node_name,
+                        "latency_ms": node_latency_ms,
+                        "tokens_used": accumulated_usage.get("input_tokens", 0) + accumulated_usage.get("output_tokens", 0),
+                        "cost_usd": round(_estimate_cost(None, accumulated_usage.get("input_tokens", 0), accumulated_usage.get("output_tokens", 0)), 6),
+                    }))
+                    await redis.publish(channel, json.dumps({
+                        "event": "state_snapshot",
+                        "run_id": run_id,
+                        "node": node_name,
+                        "state": {
+                            "messages_count": len(final_messages),
+                            "usage": accumulated_usage,
+                        },
+                    }))
 
             # ── Handle HIL interrupt ──────────────────────────────────────────
             if interrupt_payload is not None:
@@ -187,7 +245,7 @@ async def execute_run(run_id: str) -> None:
                 await db.refresh(approval)
 
                 await redis.publish(channel, json.dumps({
-                    "event": "awaiting_approval",
+                    "event": "approval_request",
                     "run_id": run_id,
                     "approval_id": str(approval.id),
                     "tool_name": interrupt_payload.get("tool_name"),
@@ -294,6 +352,19 @@ async def execute_run_resume(
 
             mcp_tools2 = await get_mcp_tools(agent.mcp_servers or [])
             db_agent_tools2 = await build_db_tools(str(agent.id), org_id2, db) if org_id2 else []
+
+            # Apply per-agent MCP tool allowlist (no rows = all tools allowed)
+            allowlist_res2 = await db.execute(
+                select(AgentToolAllowlist.mcp_tool_id).where(AgentToolAllowlist.agent_id == agent.id)
+            )
+            allowed_tool_ids2 = list(allowlist_res2.scalars())
+            if allowed_tool_ids2:
+                allowed_names_res2 = await db.execute(
+                    select(McpTool.name).where(McpTool.id.in_(allowed_tool_ids2))
+                )
+                allowed_names2 = set(allowed_names_res2.scalars())
+                mcp_tools2 = [t for t in mcp_tools2 if t.name in allowed_names2]
+
             tools = mcp_tools2 + db_agent_tools2
 
             agent_type = None
@@ -323,19 +394,64 @@ async def execute_run_resume(
                 for node_name, node_state in chunk.items():
                     if node_name == "__interrupt__":
                         break
+
+                    node_start = time.monotonic()
+                    await redis.publish(channel, json.dumps({
+                        "event": "node_enter",
+                        "run_id": run_id,
+                        "node": node_name,
+                    }))
+
                     if isinstance(node_state, dict):
                         if "usage" in node_state and node_state["usage"]:
                             accumulated_usage = node_state["usage"]
                         for msg in node_state.get("messages", []):
                             final_messages.append(msg)
-                            payload = {
-                                "event": "message",
-                                "run_id": run_id,
-                                "node": node_name,
-                                "type": type(msg).__name__,
-                                "content": msg.content if hasattr(msg, "content") else "",
-                            }
-                            await redis.publish(channel, json.dumps(payload))
+                            msg_type = type(msg).__name__
+                            if msg_type == "ToolMessage":
+                                await redis.publish(channel, json.dumps({
+                                    "event": "tool_response",
+                                    "run_id": run_id,
+                                    "node": node_name,
+                                    "tool_name": getattr(msg, "name", None),
+                                    "content": msg.content if hasattr(msg, "content") else "",
+                                }))
+                            elif getattr(msg, "tool_calls", None):
+                                for tc in msg.tool_calls:
+                                    await redis.publish(channel, json.dumps({
+                                        "event": "tool_call",
+                                        "run_id": run_id,
+                                        "node": node_name,
+                                        "tool_name": tc["name"],
+                                        "tool_args": tc.get("args", {}),
+                                    }))
+                            else:
+                                await redis.publish(channel, json.dumps({
+                                    "event": "message",
+                                    "run_id": run_id,
+                                    "node": node_name,
+                                    "type": msg_type,
+                                    "content": msg.content if hasattr(msg, "content") else "",
+                                }))
+
+                    node_latency_ms = round((time.monotonic() - node_start) * 1000)
+                    await redis.publish(channel, json.dumps({
+                        "event": "node_exit",
+                        "run_id": run_id,
+                        "node": node_name,
+                        "latency_ms": node_latency_ms,
+                        "tokens_used": accumulated_usage.get("input_tokens", 0) + accumulated_usage.get("output_tokens", 0),
+                        "cost_usd": round(_estimate_cost(None, accumulated_usage.get("input_tokens", 0), accumulated_usage.get("output_tokens", 0)), 6),
+                    }))
+                    await redis.publish(channel, json.dumps({
+                        "event": "state_snapshot",
+                        "run_id": run_id,
+                        "node": node_name,
+                        "state": {
+                            "messages_count": len(final_messages),
+                            "usage": accumulated_usage,
+                        },
+                    }))
 
             final_content = ""
             for msg in reversed(final_messages):

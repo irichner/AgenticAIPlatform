@@ -1,0 +1,38 @@
+{
+  "spec": "linode-api.json",
+  "_note": "Ground-truth operationIds verified against linode-api.json v4.111.0 on 2026-05-01 via scripts/verify_linode_labels.py. Re-run that script after any spec update.",
+  "queries": [
+    {
+      "query": "list all linodes in a region",
+      "ground_truth": "getLinodeInstances"
+    },
+    {
+      "query": "create a new linode instance",
+      "ground_truth": "createLinodeInstance"
+    },
+    {
+      "query": "get details of a specific linode",
+      "ground_truth": "getLinodeInstance"
+    },
+    {
+      "query": "delete a linode",
+      "ground_truth": "deleteLinodeInstance"
+    },
+    {
+      "query": "list volumes attached to a linode",
+      "ground_truth": "getLinodeVolumes"
+    },
+    {
+      "query": "resize a linode",
+      "ground_truth": "resizeLinodeInstance"
+    },
+    {
+      "query": "reboot a linode",
+      "ground_truth": "rebootLinodeInstance"
+    },
+    {
+      "query": "list all images available",
+      "ground_truth": "getImages"
+    }
+  ]
+}
