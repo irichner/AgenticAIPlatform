@@ -202,18 +202,23 @@ function EventRow({ ev, startedAt, onApprovalDecided }: EventRowProps) {
   }
 
   if (ev.event === "complete") {
-    const out = ev.output
-      ? JSON.stringify(ev.output, null, 2).slice(0, 500)
+    const output = ev.output as Record<string, unknown> | null | undefined;
+    const content = typeof output?.content === "string" ? output.content : null;
+    const tokens  = typeof output?.usage === "object" && output.usage
+      ? (output.usage as Record<string, number>).total_tokens
       : null;
     return (
       <div className="flex flex-col gap-1 py-2">
         <div className="flex items-center gap-2">
           <CheckCircle2 className="w-3.5 h-3.5 text-emerald shrink-0" />
           <span className="text-[11px] text-emerald font-semibold">Run complete</span>
+          {tokens != null && (
+            <span className="text-[9px] font-mono text-text-3">{tokens} tokens</span>
+          )}
         </div>
-        {out && (
+        {content && (
           <div className="ml-5 p-2 rounded-lg bg-emerald/5 border border-emerald/20">
-            <pre className="text-[10px] text-text-2 leading-relaxed whitespace-pre-wrap">{out}</pre>
+            <p className="text-[11px] text-text-1 leading-relaxed whitespace-pre-wrap">{content}</p>
           </div>
         )}
       </div>
@@ -292,7 +297,8 @@ export function AgentConsole({ activeAgentId, onRunComplete, onActiveNodeChange,
   const [events, setEvents]           = useState<AgentEvent[]>([]);
   const [isRunning, setIsRunning]     = useState(false);
 
-  const lastRunSeqRef = useRef<number | undefined>(undefined);
+  const lastRunSeqRef    = useRef<number | undefined>(undefined);
+  const autoLoadedRef    = useRef<string | null>(null);
   const [startedAt, setStartedAt]     = useState<number | null>(null);
   const [latestState, setLatestState] = useState<Record<string, unknown> | null>(null);
   const [currentRunId, setCurrentRunId] = useState<string | null>(null);
@@ -305,7 +311,27 @@ export function AgentConsole({ activeAgentId, onRunComplete, onActiveNodeChange,
   );
 
   const bottomRef = useRef<HTMLDivElement>(null);
-  const esRef     = useRef<EventSource | null>(null);
+  const abortRef  = useRef<AbortController | null>(null);
+
+  // Clear console and reset auto-load flag when the active agent changes
+  useEffect(() => {
+    setEvents([]);
+    setLatestState(null);
+    setCurrentRunId(null);
+    setHistoryRunId(null);
+    autoLoadedRef.current = null;
+  }, [activeAgentId]);
+
+  // Auto-load the most recent completed run on first mount / agent switch
+  useEffect(() => {
+    if (!activeAgentId || autoLoadedRef.current === activeAgentId) return;
+    if (isRunning || pastRuns.length === 0) return;
+    const latest = pastRuns.find((r) => r.status === "completed");
+    if (latest) {
+      autoLoadedRef.current = activeAgentId;
+      setHistoryRunId(latest.id);
+    }
+  }, [activeAgentId, pastRuns, isRunning]);
 
   // Auto-scroll to bottom when new events arrive
   useEffect(() => {
@@ -333,14 +359,14 @@ export function AgentConsole({ activeAgentId, onRunComplete, onActiveNodeChange,
   }, [events]);
 
   const stopRun = useCallback(() => {
-    esRef.current?.close();
-    esRef.current = null;
+    abortRef.current?.abort();
+    abortRef.current = null;
     setIsRunning(false);
     onActiveNodeChange?.(null);
   }, [onActiveNodeChange]);
 
   const startRun = useCallback(async (message: string) => {
-    if (!activeAgentId || !message.trim() || isRunning) return;
+    if (!activeAgentId || isRunning) return;
     setEvents([]);
     setLatestState(null);
     setIsRunning(true);
@@ -349,6 +375,7 @@ export function AgentConsole({ activeAgentId, onRunComplete, onActiveNodeChange,
     setHistoryRunId(null);
     onRunStarted?.();
 
+    autoLoadedRef.current = activeAgentId; // prevent auto-load from overwriting live run
     const startEv: AgentEvent = { event: "start", run_id: "" };
     setEvents([startEv]);
 
@@ -356,28 +383,65 @@ export function AgentConsole({ activeAgentId, onRunComplete, onActiveNodeChange,
       const run = await api.runs.create(activeAgentId, message.trim());
       setCurrentRunId(run.id);
 
-      const es = new EventSource(`/api/runs/${run.id}/stream`);
-      esRef.current = es;
+      const ac = new AbortController();
+      abortRef.current = ac;
 
-      es.onmessage = (e) => {
+      // Use fetch instead of EventSource so we can send X-Org-Id and auth headers
+      (async () => {
         try {
-          const data: AgentEvent = JSON.parse(e.data);
-          setEvents((prev) => [...prev, data]);
-          if (data.event === "complete" || data.event === "error") {
-            setIsRunning(false);
-            es.close();
-            esRef.current = null;
-            onRunComplete?.();
-          }
-        } catch { /* ignore parse errors */ }
-      };
+          const orgId = typeof window !== "undefined" ? localStorage.getItem("lanara_org_id") : null;
+          const headers: Record<string, string> = { Accept: "text/event-stream", "Cache-Control": "no-cache" };
+          if (orgId) headers["X-Org-Id"] = orgId;
 
-      es.onerror = () => {
-        setEvents((prev) => [...prev, { event: "error", run_id: run.id, error: "Connection lost" }]);
-        setIsRunning(false);
-        es.close();
-        esRef.current = null;
-      };
+          const res = await fetch(`/api/runs/${run.id}/stream`, { headers, signal: ac.signal });
+          if (!res.ok || !res.body) {
+            throw new Error(`Stream ${res.status}: ${await res.text().catch(() => res.statusText)}`);
+          }
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = "";
+
+          const SSE_SEP = /\r\n\r\n|\n\n/;
+
+          const processChunk = (chunk: string) => {
+            const dataLine = chunk.split(/\r?\n/).find((l) => l.startsWith("data: "));
+            if (!dataLine) return false;
+            const raw = dataLine.slice(6).trim();
+            if (!raw) return false;
+            try {
+              const data: AgentEvent = JSON.parse(raw);
+              setEvents((prev) => [...prev, data]);
+              if (data.event === "complete" || data.event === "error") {
+                setIsRunning(false);
+                abortRef.current = null;
+                onRunComplete?.();
+                return true; // signal: done
+              }
+            } catch { /* ignore parse errors */ }
+            return false;
+          };
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (value) buf += decoder.decode(value, { stream: !done });
+
+            const parts = buf.split(SSE_SEP);
+            buf = done ? "" : (parts.pop() ?? "");
+
+            for (const chunk of parts) {
+              if (processChunk(chunk)) return;
+            }
+
+            if (done) break;
+          }
+        } catch (err) {
+          if ((err as Error).name === "AbortError") return;
+          setEvents((prev) => [...prev, { event: "error", run_id: run.id, error: String(err) }]);
+          setIsRunning(false);
+          abortRef.current = null;
+        }
+      })();
     } catch (err) {
       setEvents((prev) => [...prev, { event: "error", run_id: "", error: String(err) }]);
       setIsRunning(false);
@@ -407,7 +471,7 @@ export function AgentConsole({ activeAgentId, onRunComplete, onActiveNodeChange,
   }, [historyRunId, isRunning]);
 
   // Cleanup on unmount
-  useEffect(() => () => { esRef.current?.close(); }, []);
+  useEffect(() => () => { abortRef.current?.abort(); }, []);
 
   const tabs: ConsoleTab[] = ["console", "trace", "state"];
 

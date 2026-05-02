@@ -783,7 +783,7 @@ export const api = {
       req<Agent>("PATCH", `/agents/${agentId}`, payload),
     versions: (agentId: string) =>
       req<AgentVersion[]>("GET", `/agents/${agentId}/versions`),
-    generateInstructions: (payload: { name: string; description?: string; swarm_name: string }) =>
+    generateInstructions: (payload: { name: string; description?: string; swarm_name: string; mcp_servers?: string[]; db_tables?: { table: string; operations: string[] }[] }) =>
       req<{ prompt: string }>("POST", "/agents/generate-instructions", payload),
     createPrebuilt: (agentType: string, businessUnitId: string) =>
       req<Agent>("POST", `/agents/prebuilt/${agentType}?business_unit_id=${businessUnitId}`),

@@ -106,6 +106,12 @@ _NON_CHAT_TOKENS = (
     "transcri",
 )
 
+# Model IDs known NOT to support function calling / tool use.
+# All other chat models are assumed to support it.
+_NO_TOOL_USE_MODELS = {
+    "deepseek-reasoner",  # chain-of-thought only, no tool API
+}
+
 
 def _is_chat_model(model_id: str) -> bool:
     """Return True only if model_id looks like a chat/completion model."""
@@ -120,7 +126,7 @@ def _format_model_name(model_id: str) -> str:
     return re.sub(r"[A-Za-z]+", lambda m: m.group(0).capitalize(), name)
 
 
-def _infer_capabilities(model_data: dict[str, Any]) -> list[str]:
+def _infer_capabilities(model_data: dict[str, Any], provider: str = "") -> list[str]:
     mid = (model_data.get("id") or "").lower()
 
     # Non-chat modalities — return without "chat" so get_active_llm skips them
@@ -131,12 +137,16 @@ def _infer_capabilities(model_data: dict[str, Any]) -> list[str]:
     if any(tok in mid for tok in ("dall-e", "image-gen", "stable-diffusion")):
         return ["image"]
 
-    # Chat models — may also support vision / code
+    # Chat models — may also support vision / code / tool_use
     caps = ["chat"]
     if any(x in mid for x in ("vision", "vl", "visual", "multimodal", "omni")):
         caps.append("vision")
     if any(x in mid for x in ("code", "coder", "codestral", "starcoder")):
         caps.append("code")
+    # All modern chat models support function calling except known exceptions.
+    # Manually-configured models (capabilities=None) default to tool_use in the executor.
+    if mid not in _NO_TOOL_USE_MODELS:
+        caps.append("tool_use")
     return caps
 
 
@@ -167,7 +177,7 @@ def _parse_models(raw: list[dict], provider: str) -> list[dict]:
             "id":             model_id,
             "name":           display,
             "context_window": ctx,
-            "capabilities":   _infer_capabilities(m),
+            "capabilities":   _infer_capabilities(m, provider),
         })
 
     return sorted(out, key=lambda m: m["name"].lower())
@@ -213,7 +223,7 @@ async def fetch_provider_models(
                 "id":             m["id"],
                 "name":           m["name"],
                 "context_window": _KNOWN_CONTEXT.get(m["id"]),
-                "capabilities":   _infer_capabilities(m),
+                "capabilities":   _infer_capabilities(m, p),
             }
             for m in models
         ]

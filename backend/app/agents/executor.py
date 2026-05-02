@@ -25,7 +25,7 @@ from sqlalchemy import select
 
 from app.agents.db_tools import build_db_tools
 from app.agents.graph import build_react_graph
-from app.agents.llm import get_active_llm
+from app.agents.llm import get_active_llm_with_model, get_llm_and_model_by_id
 from app.agents.prebuilt import get_prebuilt_graph
 from app.core.mcp_client import get_mcp_tools
 from app.core.rag import get_rag_context
@@ -78,7 +78,17 @@ async def execute_run(run_id: str) -> None:
         }))
 
         try:
-            llm = await get_active_llm(db, org_id=agent.org_id)
+            # Resolve org_id from business unit (needed before LLM selection)
+            bu_res = await db.execute(select(BusinessUnit).where(BusinessUnit.id == agent.business_unit_id))
+            bu = bu_res.scalar_one_or_none()
+            org_id = bu.org_id if bu else None
+
+            # Select LLM: prefer agent's assigned model, fall back to org default
+            if agent.model_id:
+                llm, ai_model = await get_llm_and_model_by_id(db, agent.model_id)
+            else:
+                llm, ai_model = await get_active_llm_with_model(db, org_id=org_id)
+
             if llm is None:
                 raise RuntimeError("No AI model configured. Go to Admin → AI to add one.")
 
@@ -96,10 +106,6 @@ async def execute_run(run_id: str) -> None:
                     "chunks_found": rag_context.count("["),
                 }))
 
-            bu_res = await db.execute(select(BusinessUnit).where(BusinessUnit.id == agent.business_unit_id))
-            bu = bu_res.scalar_one_or_none()
-            org_id = bu.org_id if bu else None
-
             if org_id:
                 from app.agents.rate_limit import check_agent_run_rate, AgentRateLimitError
                 try:
@@ -113,20 +119,39 @@ async def execute_run(run_id: str) -> None:
                     }))
                     return
 
-            mcp_tools = await get_mcp_tools(agent.mcp_servers or [])
-            db_agent_tools = await build_db_tools(str(agent.id), org_id, db) if org_id else []
+            # Only load tools if the model supports function calling.
+            # Manually-configured models (capabilities=None) are assumed to support it.
+            model_caps = ai_model.capabilities if ai_model else None
+            supports_tools = model_caps is None or "tool_use" in model_caps
 
-            # Apply per-agent MCP tool allowlist (no rows = all tools allowed)
-            allowlist_res = await db.execute(
-                select(AgentToolAllowlist.mcp_tool_id).where(AgentToolAllowlist.agent_id == agent.id)
-            )
-            allowed_tool_ids = list(allowlist_res.scalars())
-            if allowed_tool_ids:
-                allowed_names_res = await db.execute(
-                    select(McpTool.name).where(McpTool.id.in_(allowed_tool_ids))
+            mcp_tools: list = []
+            db_agent_tools: list = []
+            if supports_tools:
+                mcp_tools = await get_mcp_tools(agent.mcp_servers or [])
+                db_agent_tools = await build_db_tools(str(agent.id), org_id, db) if org_id else []
+
+                # Apply per-agent MCP tool allowlist (no rows = all tools allowed)
+                allowlist_res = await db.execute(
+                    select(AgentToolAllowlist.mcp_tool_id).where(AgentToolAllowlist.agent_id == agent.id)
                 )
-                allowed_names = set(allowed_names_res.scalars())
-                mcp_tools = [t for t in mcp_tools if t.name in allowed_names]
+                allowed_tool_ids = list(allowlist_res.scalars())
+                if allowed_tool_ids:
+                    allowed_names_res = await db.execute(
+                        select(McpTool.name).where(McpTool.id.in_(allowed_tool_ids))
+                    )
+                    allowed_names = set(allowed_names_res.scalars())
+                    mcp_tools = [t for t in mcp_tools if t.name in allowed_names]
+            else:
+                await redis.publish(channel, json.dumps({
+                    "event": "message",
+                    "run_id": run_id,
+                    "node": "system",
+                    "type": "SystemMessage",
+                    "content": (
+                        f"⚠️ Model '{ai_model.model_id}' does not support tool use — "
+                        "MCP and database tools are disabled for this run."
+                    ),
+                }))
 
             tools = mcp_tools + db_agent_tools
 
@@ -147,7 +172,7 @@ async def execute_run(run_id: str) -> None:
                     enable_hil=enable_hil,
                 )
 
-            user_input = (run.input or {}).get("message", "")
+            user_input = (run.input or {}).get("message", "") or "Run"
             config = {"configurable": {"thread_id": run_id}}
             initial_state = {
                 "messages": [HumanMessage(content=user_input)],
@@ -297,7 +322,8 @@ async def execute_run(run_id: str) -> None:
                 "run_id": run_id,
                 "error": str(exc),
             }))
-            raise
+            import logging
+            logging.getLogger(__name__).error("Run %s failed: %s", run_id, exc, exc_info=True)
 
 
 async def execute_run_resume(
@@ -329,13 +355,17 @@ async def execute_run_resume(
         await db.commit()
 
         try:
-            llm = await get_active_llm(db, org_id=agent.org_id)
-            if llm is None:
-                raise RuntimeError("No AI model configured. Go to Admin → AI to add one.")
-
             bu_res2 = await db.execute(select(BusinessUnit).where(BusinessUnit.id == agent.business_unit_id))
             bu2 = bu_res2.scalar_one_or_none()
             org_id2 = bu2.org_id if bu2 else None
+
+            if agent.model_id:
+                llm, ai_model2 = await get_llm_and_model_by_id(db, agent.model_id)
+            else:
+                llm, ai_model2 = await get_active_llm_with_model(db, org_id=org_id2)
+
+            if llm is None:
+                raise RuntimeError("No AI model configured. Go to Admin → AI to add one.")
 
             if org_id2:
                 from app.agents.rate_limit import check_agent_run_rate, AgentRateLimitError
@@ -350,20 +380,25 @@ async def execute_run_resume(
                     }))
                     return
 
-            mcp_tools2 = await get_mcp_tools(agent.mcp_servers or [])
-            db_agent_tools2 = await build_db_tools(str(agent.id), org_id2, db) if org_id2 else []
+            model_caps2 = ai_model2.capabilities if ai_model2 else None
+            supports_tools2 = model_caps2 is None or "tool_use" in model_caps2
 
-            # Apply per-agent MCP tool allowlist (no rows = all tools allowed)
-            allowlist_res2 = await db.execute(
-                select(AgentToolAllowlist.mcp_tool_id).where(AgentToolAllowlist.agent_id == agent.id)
-            )
-            allowed_tool_ids2 = list(allowlist_res2.scalars())
-            if allowed_tool_ids2:
-                allowed_names_res2 = await db.execute(
-                    select(McpTool.name).where(McpTool.id.in_(allowed_tool_ids2))
+            mcp_tools2: list = []
+            db_agent_tools2: list = []
+            if supports_tools2:
+                mcp_tools2 = await get_mcp_tools(agent.mcp_servers or [])
+                db_agent_tools2 = await build_db_tools(str(agent.id), org_id2, db) if org_id2 else []
+
+                allowlist_res2 = await db.execute(
+                    select(AgentToolAllowlist.mcp_tool_id).where(AgentToolAllowlist.agent_id == agent.id)
                 )
-                allowed_names2 = set(allowed_names_res2.scalars())
-                mcp_tools2 = [t for t in mcp_tools2 if t.name in allowed_names2]
+                allowed_tool_ids2 = list(allowlist_res2.scalars())
+                if allowed_tool_ids2:
+                    allowed_names_res2 = await db.execute(
+                        select(McpTool.name).where(McpTool.id.in_(allowed_tool_ids2))
+                    )
+                    allowed_names2 = set(allowed_names_res2.scalars())
+                    mcp_tools2 = [t for t in mcp_tools2 if t.name in allowed_names2]
 
             tools = mcp_tools2 + db_agent_tools2
 
@@ -496,4 +531,5 @@ async def execute_run_resume(
                 "run_id": run_id,
                 "error": str(exc),
             }))
-            raise
+            import logging
+            logging.getLogger(__name__).error("Run %s (resume) failed: %s", run_id, exc, exc_info=True)

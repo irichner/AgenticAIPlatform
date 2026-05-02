@@ -1,15 +1,23 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { Sparkles, Loader2 } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, type AgentDbPolicy } from "@/lib/api";
 import { cn } from "@/lib/cn";
+
+interface SelectedMcpServer {
+  id: string;
+  name: string;
+  description?: string | null;
+}
 
 interface Props {
   agentId: string;
   agentName: string;
   agentDescription: string;
   agentSwarmName: string;
+  selectedMcpServers: SelectedMcpServer[];
+  dbPolicies: AgentDbPolicy[];
   prompt: string;
   onPromptChange: (p: string) => void;
 }
@@ -19,25 +27,54 @@ export function AgentPromptTab({
   agentName,
   agentDescription,
   agentSwarmName,
+  selectedMcpServers,
+  dbPolicies,
   prompt,
   onPromptChange,
 }: Props) {
   const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
 
-  const handleGenerate = useCallback(async () => {
+  const enabledPolicies = dbPolicies.filter((p) => p.enabled);
+  const hasToolContext = enabledPolicies.length > 0 || selectedMcpServers.length > 0;
+
+  const handleGenerate = async () => {
     if (!agentName.trim()) return;
     setGenerating(true);
+    setGenError(null);
     try {
+      // Always fetch fresh policies at generate time — avoids stale/empty SWR cache
+      let freshPolicies: AgentDbPolicy[] = enabledPolicies;
+      try {
+        const fetched = await api.agentDbPolicies.list(agentId);
+        freshPolicies = fetched.filter((p) => p.enabled);
+      } catch {
+        // Fall back to whatever we have from props
+      }
+
+      const db_tables = freshPolicies.map((p) => ({
+        table: p.table_name,
+        operations: p.allowed_operations,
+      }));
+
+      const mcp_servers = selectedMcpServers.map((s) =>
+        s.description ? `${s.name} — ${s.description}` : s.name,
+      );
+
       const res = await api.agents.generateInstructions({
         name: agentName.trim(),
         description: agentDescription.trim() || undefined,
         swarm_name: agentSwarmName,
+        mcp_servers: mcp_servers.length > 0 ? mcp_servers : undefined,
+        db_tables: db_tables.length > 0 ? db_tables : undefined,
       });
       onPromptChange(res.prompt);
-    } catch { /* ignore */ } finally {
+    } catch (err) {
+      setGenError(String(err));
+    } finally {
       setGenerating(false);
     }
-  }, [agentName, agentDescription, agentSwarmName, onPromptChange]);
+  };
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -61,6 +98,31 @@ export function AgentPromptTab({
             </span>
           </button>
         </div>
+
+        {genError && (
+          <p className="text-xs text-rose-400 bg-rose-500/10 rounded-lg px-3 py-2">{genError}</p>
+        )}
+
+        {hasToolContext ? (
+          <div className="flex flex-wrap gap-1.5">
+            {enabledPolicies.map((p) => (
+              <span key={p.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan/10 text-cyan text-[10px] font-mono">
+                {p.table_name}
+                <span className="text-cyan/60">({p.allowed_operations.join(", ")})</span>
+              </span>
+            ))}
+            {selectedMcpServers.map((s) => (
+              <span key={s.id} className="px-2 py-0.5 rounded-md bg-violet/10 text-violet text-[10px]">
+                {s.name}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[10px] text-text-3 italic">
+            No Memory tables or MCP servers configured — generated prompt will not include tool instructions.
+            Set them up in the Memory and MCP tabs first.
+          </p>
+        )}
 
         <textarea
           value={prompt}

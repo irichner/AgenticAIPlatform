@@ -89,6 +89,46 @@ async def get_llm_by_id(db: AsyncSession, model_id: str):
     return build_llm(model, provider_api_key=provider_key)
 
 
+async def get_active_llm_with_model(db: AsyncSession, org_id=None) -> tuple:
+    """Return (llm, AiModel) for the first enabled chat-capable model, or (None, None)."""
+    from sqlalchemy import or_
+    q = (
+        select(AiModel)
+        .options(selectinload(AiModel.provider_rel))
+        .where(
+            AiModel.enabled == True,  # noqa: E712
+            or_(
+                AiModel.capabilities.is_(None),
+                AiModel.capabilities.contains(["chat"]),
+            ),
+        )
+        .order_by(AiModel.created_at)
+        .limit(1)
+    )
+    if org_id is not None:
+        q = q.where(AiModel.org_id == org_id)
+    result = await db.execute(q)
+    model = result.scalar_one_or_none()
+    if model is None:
+        return None, None
+    provider_key = model.provider_rel.api_key if model.provider_rel else None
+    return build_llm(model, provider_api_key=provider_key), model
+
+
+async def get_llm_and_model_by_id(db: AsyncSession, model_id) -> tuple:
+    """Return (llm, AiModel) for a specific enabled model, or (None, None)."""
+    result = await db.execute(
+        select(AiModel)
+        .options(selectinload(AiModel.provider_rel))
+        .where(AiModel.id == model_id, AiModel.enabled == True)  # noqa: E712
+    )
+    model = result.scalar_one_or_none()
+    if model is None:
+        return None, None
+    provider_key = model.provider_rel.api_key if model.provider_rel else None
+    return build_llm(model, provider_api_key=provider_key), model
+
+
 def build_llm(model: AiModel, provider_api_key: str | None = None):
     provider = (model.provider or "").lower().strip()
     model_id  = model.model_id

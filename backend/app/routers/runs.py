@@ -48,12 +48,6 @@ async def create_run(
     agent = agent_res.scalar_one_or_none()
     if agent is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-    if agent.status != "published":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only published agents can be executed",
-        )
-
     version_res = await db.execute(
         select(AgentVersion)
         .where(AgentVersion.agent_id == agent.id)

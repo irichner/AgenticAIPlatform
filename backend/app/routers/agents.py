@@ -54,10 +54,25 @@ async def list_agents(
     return result.scalars().all()
 
 
+class DbTableAccess(BaseModel):
+    table: str
+    operations: list[str]
+
+
 class GenerateInstructionsRequest(BaseModel):
     name: str
     description: str | None = None
     swarm_name: str
+    mcp_servers: list[str] = []
+    db_tables: list[DbTableAccess] = []
+
+
+_OP_TOOL_PREFIX = {
+    "select": ("db_read", "Read rows from"),
+    "insert": ("db_create", "Insert new rows into"),
+    "update": ("db_update", "Update existing rows in"),
+    "delete": ("db_delete", "Delete rows from"),
+}
 
 
 @router.post("/generate-instructions")
@@ -67,22 +82,73 @@ async def generate_agent_instructions(
     db: AsyncSession = Depends(get_db),
 ):
     llm = await get_active_llm(db, org_id=ctx.scope_id)
+    if llm is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No AI model configured. Go to Admin → AI to enable a model.",
+        )
 
-    context_lines = [f"Agent name: {payload.name}"]
+    identity_lines = [f"Agent name: {payload.name}", f"Swarm / department: {payload.swarm_name}"]
     if payload.description:
-        context_lines.append(f"Description: {payload.description}")
-    context_lines.append(f"Swarm (team/department): {payload.swarm_name}")
-    context = "\n".join(context_lines)
+        identity_lines.append(f"Purpose: {payload.description}")
+    identity_block = "\n".join(identity_lines)
 
-    user_msg = HumanMessage(content=(
-        f"Generate a detailed system prompt for an AI agent with the following details:\n\n"
-        f"{context}\n\n"
-        "The instructions should define the agent's role, responsibilities, tone, key capabilities, "
-        "and any important constraints. Write only the system prompt text itself — no preamble, "
-        "no explanation, no markdown headers. Ready to paste directly into an instructions field."
-    ))
+    # Build an exact tool listing so the LLM can reference real names
+    db_tool_lines: list[str] = []
+    for t in payload.db_tables:
+        for op in t.operations:
+            if op in _OP_TOOL_PREFIX:
+                prefix, verb = _OP_TOOL_PREFIX[op]
+                db_tool_lines.append(f"  - `{prefix}_{t.table}` — {verb} the {t.table} table")
 
-    response = await llm.ainvoke([user_msg])
+    mcp_tool_lines = [f"  - {s}" for s in payload.mcp_servers]
+
+    has_tools = bool(db_tool_lines or mcp_tool_lines)
+
+    if has_tools:
+        tool_block_parts = []
+        if db_tool_lines:
+            tool_block_parts.append("Database tools (exact function names):\n" + "\n".join(db_tool_lines))
+        if mcp_tool_lines:
+            tool_block_parts.append("MCP integration tools:\n" + "\n".join(mcp_tool_lines))
+        tool_block = "\n\n".join(tool_block_parts)
+
+        meta_prompt = f"""\
+You are writing a system prompt for an AI agent.
+
+AGENT DETAILS:
+{identity_block}
+
+TOOLS THIS AGENT HAS ACCESS TO:
+{tool_block}
+
+Write a comprehensive system prompt that contains ALL of the following sections:
+
+1. **Role & Goal** — one paragraph describing what this agent does and why.
+
+2. **Available Tools** — a dedicated section that lists every tool above by its EXACT name \
+and explains specifically when the agent MUST call it and what to do with the result. \
+Do not write generic descriptions like "use tools as needed". For each tool write: \
+(a) the exact tool name, (b) the specific trigger condition that requires calling it, \
+(c) what the agent should do with the returned data.
+
+3. **Workflow** — step-by-step process the agent follows for its primary task, \
+referencing the exact tool names where each step uses one.
+
+4. **Rules & Constraints** — error handling, edge cases, when to ask for clarification, \
+what the agent must never do.
+
+Output only the system prompt text. No meta-commentary, no wrapper text."""
+    else:
+        meta_prompt = f"""\
+Generate a detailed system prompt for an AI agent.
+
+{identity_block}
+
+The prompt should define the agent's role, responsibilities, tone, key capabilities, and constraints.
+Write only the system prompt text — no preamble, no explanation."""
+
+    response = await llm.ainvoke([HumanMessage(content=meta_prompt)])
     content = response.content
     if isinstance(content, list):
         text = " ".join(
